@@ -173,6 +173,7 @@ function CrossCanvas({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const cell = display / pattern.size;
+    const chartPalette = Array.from(new Set(pattern.grid.filter((value) => value >= 0)));
 
     const shade = (hex: string, amount: number) => {
       const parts = hex.match(/\w\w/g)?.map((part) => parseInt(part, 16)) || [80, 80, 80];
@@ -290,11 +291,20 @@ function CrossCanvas({
         const color = THREADS[colorIndex];
         if (!isDone) {
           if (!compact) {
-            ctx.fillStyle = `${color.hex}48`;
-            ctx.font = `${Math.max(8, cell * .38)}px ui-monospace`;
+            const chartNumber = chartPalette.indexOf(colorIndex) + 1;
+            const isCurrentColor = selectedColor === colorIndex;
+            if (isCurrentColor) {
+              ctx.fillStyle = `${color.hex}1F`;
+              ctx.fillRect(x + 1, y + 1, cell - 2, cell - 2);
+              ctx.strokeStyle = `${color.hex}66`;
+              ctx.lineWidth = 1.2;
+              ctx.strokeRect(x + 2, y + 2, cell - 4, cell - 4);
+            }
+            ctx.fillStyle = isCurrentColor ? shade(color.hex, -28) : "rgba(78, 83, 77, .26)";
+            ctx.font = `${isCurrentColor ? 700 : 600} ${Math.max(9, cell * .42)}px ui-monospace`;
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
-            ctx.fillText(color.code.slice(-1), x + cell / 2, y + cell / 2);
+            ctx.fillText(String(chartNumber), x + cell / 2, y + cell / 2);
           }
           return;
         }
@@ -791,15 +801,24 @@ export default function Home() {
             </div>
             <aside className="thread-panel">
               <div className="thread-heading"><div><p className="eyebrow">THREAD BOARD</p><h2>配线板</h2></div><span>{palette.length} 色</span></div>
-              <p className="thread-guide">先选择线色，再点击图纸上的对应格子。我们会阻止错误颜色。</p>
+              <p className="thread-guide">图纸里的编号与每束线上的编号完全相同。先选线束，再绣所有被突出显示的同号格子。</p>
+              <div className="match-tip" aria-label="图纸编号与配线编号对应示例">
+                <span>图纸格 <b>{palette.indexOf(selectedColor) + 1}</b></span>
+                <i>→</i>
+                <span>配线束 <b>{palette.indexOf(selectedColor) + 1}</b></span>
+              </div>
               <div className="thread-list">
-                {palette.map((colorIndex) => {
+                {palette.map((colorIndex, paletteIndex) => {
                   const total = pattern.grid.filter((c) => c === colorIndex).length;
                   const done = pattern.grid.filter((c, index) => c === colorIndex && stitched.has(index)).length;
                   return (
                     <button key={colorIndex} className={selectedColor === colorIndex ? "selected" : ""} onClick={() => setSelectedColor(colorIndex)}>
-                      <span className="floss" style={{ "--floss": THREADS[colorIndex].hex } as React.CSSProperties}><i /><i /><i /></span>
-                      <span className="thread-copy"><b>DMC {THREADS[colorIndex].code}</b><small>{THREADS[colorIndex].name}</small></span>
+                      <span className="floss-bundle" style={{ "--floss": THREADS[colorIndex].hex } as React.CSSProperties}>
+                        <i /><i /><i /><i /><i /><i /><i />
+                        <em>{paletteIndex + 1}</em>
+                        <strong />
+                      </span>
+                      <span className="thread-copy"><b>DMC {THREADS[colorIndex].code}</b><small>图纸编号 {paletteIndex + 1} · {THREADS[colorIndex].name}</small></span>
                       <span className="remaining">{done === total ? "完成" : `余 ${total - done}`}</span>
                     </button>
                   );
