@@ -266,6 +266,7 @@ function CrossCanvas({
   animationNonce,
   highlightFlash = false,
   onStitch,
+  onEdit,
 }: {
   pattern: Pattern;
   compact?: boolean;
@@ -275,8 +276,10 @@ function CrossCanvas({
   animationNonce?: number;
   highlightFlash?: boolean;
   onStitch?: (index: number) => void;
+  onEdit?: (index: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const lastEditedIndexRef = useRef<number | null>(null);
   const display = compact ? 240 : 660;
 
   useEffect(() => {
@@ -407,7 +410,7 @@ function CrossCanvas({
         const color = threadSet[colorIndex];
         if (!isDone) {
           if (!compact) {
-            const chartNumber = chartPalette.indexOf(colorIndex) + 1;
+            const chartNumber = pattern.colors ? colorIndex + 1 : chartPalette.indexOf(colorIndex) + 1;
             const isCurrentColor = selectedColor === colorIndex;
             if (isCurrentColor) {
               ctx.fillStyle = `${color.hex}${highlightFlash ? "52" : "1F"}`;
@@ -475,20 +478,44 @@ function CrossCanvas({
     return () => cancelAnimationFrame(frame);
   }, [pattern, compact, stitched, selectedColor, animatedIndex, animationNonce, highlightFlash, display]);
 
-  const handlePointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!onStitch) return;
+  const pointerIndex = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const x = Math.floor(((event.clientX - rect.left) / rect.width) * pattern.size);
     const y = Math.floor(((event.clientY - rect.top) / rect.height) * pattern.size);
-    onStitch(y * pattern.size + x);
+    if (x < 0 || y < 0 || x >= pattern.size || y >= pattern.size) return -1;
+    return y * pattern.size + x;
+  };
+
+  const handlePointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const index = pointerIndex(event);
+    if (index < 0) return;
+    if (onEdit) {
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      lastEditedIndexRef.current = index;
+      onEdit(index);
+      return;
+    }
+    onStitch?.(index);
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!onEdit || event.buttons !== 1) return;
+    const index = pointerIndex(event);
+    if (index < 0 || index === lastEditedIndexRef.current) return;
+    lastEditedIndexRef.current = index;
+    onEdit(index);
   };
 
   return (
     <canvas
       ref={canvasRef}
-      className={compact ? "preview-canvas" : "stitch-canvas"}
+      className={compact ? "preview-canvas" : `stitch-canvas${onEdit ? " editing" : ""}`}
       style={{ aspectRatio: "1 / 1" }}
       onPointerDown={handlePointer}
+      onPointerMove={handlePointerMove}
+      onPointerUp={() => { lastEditedIndexRef.current = null; }}
+      onPointerCancel={() => { lastEditedIndexRef.current = null; }}
       aria-label={`${pattern.name}十字绣图纸`}
     />
   );
@@ -609,11 +636,13 @@ export default function Home() {
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [projects, setProjects] = useState<SavedProjectRow[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
-  const [celebrationOpen, setCelebrationOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [sharePhase, setSharePhase] = useState<"form" | "sending" | "sent">("form");
   const [highlightFlash, setHighlightFlash] = useState(false);
   const [previewing, setPreviewing] = useState(false);
+  const [editingPattern, setEditingPattern] = useState(false);
+  const [editTool, setEditTool] = useState<"paint" | "erase">("paint");
+  const [editBrushSize, setEditBrushSize] = useState<1 | 3 | 5>(1);
   const [sharedFrom, setSharedFrom] = useState("");
   const [toast, setToast] = useState("");
   const [uploadPreview, setUploadPreview] = useState("");
@@ -639,6 +668,7 @@ export default function Home() {
           setSelectedColor(Array.from(new Set(sharedPattern.grid.filter((value) => value >= 0)))[0] || 0);
           setStitched(new Set(sharedPattern.grid.map((value, index) => value >= 0 ? index : -1).filter((index) => index >= 0)));
           setSharedFrom(data.share.senderName);
+          setEditingPattern(false);
           setSaveStatus("saved");
           setView("studio");
         })
@@ -648,8 +678,14 @@ export default function Home() {
 
   const patternCells = useMemo(() => pattern.grid.map((v, i) => (v >= 0 ? i : -1)).filter((v) => v >= 0), [pattern]);
   const progress = patternCells.length ? Math.round((stitched.size / patternCells.length) * 100) : 0;
-  const palette = useMemo(() => Array.from(new Set(pattern.grid.filter((v) => v >= 0))), [pattern]);
+  const palette = useMemo(() => {
+    const used = Array.from(new Set(pattern.grid.filter((v) => v >= 0)));
+    return pattern.colors ? used.sort((a, b) => a - b) : used;
+  }, [pattern]);
   const activeThreads = pattern.colors || THREADS;
+  const editorPalette = editingPattern
+    ? activeThreads.map((_, index) => index)
+    : palette;
   const filteredPatterns = PATTERNS.filter((item) => `${item.name}${item.subtitle}`.includes(search));
 
   const applySavedProgress = (row: { patternJson: string; stitchedJson: string; updatedAt: number } | null, fallback?: Pattern) => {
@@ -661,6 +697,7 @@ export default function Home() {
       setStitched(new Set());
       setSaveStatus("idle");
       setLastSavedAt(null);
+      setEditingPattern(Boolean(fallback?.id.startsWith("upload-")));
       return false;
     }
     try {
@@ -673,6 +710,7 @@ export default function Home() {
       setStitched(new Set(restoredStitches));
       setSaveStatus("saved");
       setLastSavedAt(row.updatedAt);
+      setEditingPattern(false);
       return true;
     } catch {
       return false;
@@ -750,8 +788,10 @@ export default function Home() {
     setSaveStatus("idle");
     setLastSavedAt(null);
     setSharedFrom("");
-    setCelebrationOpen(false);
     setPreviewing(false);
+    setEditingPattern(next.id.startsWith("upload-"));
+    setEditTool("paint");
+    setEditBrushSize(1);
     setView("studio");
     void loadSavedProgress(next);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -767,29 +807,85 @@ export default function Home() {
     if (target < 0 || stitched.has(index)) return;
     if (target !== selectedColor) {
       const needed = activeThreads[target];
+      const targetNumber = pattern.colors ? target + 1 : palette.indexOf(target) + 1;
       showToast(pattern.colors
-        ? `这里需要图纸编号 ${palette.indexOf(target) + 1} · ${needed.name}`
+        ? `这里需要图纸编号 ${targetNumber} · ${needed.name}`
         : `这里需要 DMC ${needed.code} · ${needed.name}`);
       return;
     }
-    const completesPattern = stitched.size + 1 === patternCells.length;
     setStitched((current) => new Set(current).add(index));
     setSaveStatus("dirty");
     setAnimatedIndex(index);
     setAnimationNonce((current) => current + 1);
     if (animationTimerRef.current) clearTimeout(animationTimerRef.current);
     animationTimerRef.current = setTimeout(() => setAnimatedIndex(null), 680);
-    if (completesPattern) {
-      window.setTimeout(() => setCelebrationOpen(true), 720);
-    }
   };
 
   const selectThread = (colorIndex: number) => {
     setSelectedColor(colorIndex);
+    if (editingPattern) setEditTool("paint");
     setHighlightFlash(false);
     window.requestAnimationFrame(() => setHighlightFlash(true));
     if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
     highlightTimerRef.current = setTimeout(() => setHighlightFlash(false), 1250);
+  };
+
+  const editPatternCell = (index: number) => {
+    if (!editingPattern || sharedFrom) return;
+    const centerX = index % pattern.size;
+    const centerY = Math.floor(index / pattern.size);
+    const radius = Math.floor(editBrushSize / 2);
+    const brushCells: number[] = [];
+    for (let offsetY = -radius; offsetY <= radius; offsetY += 1) {
+      for (let offsetX = -radius; offsetX <= radius; offsetX += 1) {
+        const x = centerX + offsetX;
+        const y = centerY + offsetY;
+        if (x >= 0 && y >= 0 && x < pattern.size && y < pattern.size) {
+          brushCells.push(y * pattern.size + x);
+        }
+      }
+    }
+
+    setPattern((current) => {
+      const grid = [...current.grid];
+      const nextColor = editTool === "erase" ? -1 : selectedColor;
+      brushCells.forEach((cellIndex) => { grid[cellIndex] = nextColor; });
+      return { ...current, grid };
+    });
+    setStitched((current) => {
+      const next = new Set(current);
+      brushCells.forEach((cellIndex) => next.delete(cellIndex));
+      return next;
+    });
+    setSaveStatus("dirty");
+  };
+
+  const addCustomColor = (hex: string) => {
+    const colors = pattern.colors ? [...pattern.colors] : [...THREADS];
+    let colorIndex = colors.findIndex((color) => color.hex.toLowerCase() === hex.toLowerCase());
+    if (colorIndex < 0) {
+      colorIndex = colors.length;
+      colors.push({
+        code: `CUSTOM${String(colorIndex + 1).padStart(2, "0")}`,
+        name: `自选颜色 ${hex.toUpperCase()}`,
+        hex: hex.toUpperCase(),
+      });
+      setPattern((current) => ({ ...current, colors }));
+      setSaveStatus("dirty");
+    }
+    setSelectedColor(colorIndex);
+    setEditTool("paint");
+  };
+
+  const togglePatternEditor = () => {
+    setPreviewing(false);
+    setAnimatedIndex(null);
+    const next = !editingPattern;
+    if (!next && !pattern.grid.includes(selectedColor)) {
+      setSelectedColor(palette[0] ?? 0);
+    }
+    setEditingPattern(next);
+    showToast(next ? "校对模式：选择颜色后点击或拖动格子" : "图纸修改已保留");
   };
 
   const previewFinishedPattern = () => {
@@ -990,37 +1086,6 @@ export default function Home() {
       sourceContext.drawImage(image, 0, 0, sourceWidth, sourceHeight);
       const sourcePixels = sourceContext.getImageData(0, 0, sourceWidth, sourceHeight).data;
 
-      const borderColors: Rgb[] = [];
-      for (let x = 0; x < sourceWidth; x += 1) {
-        [0, sourceHeight - 1].forEach((y) => {
-          const index = y * sourceWidth + x;
-          if (sourcePixels[index * 4 + 3] > 80) {
-            borderColors.push({ r: sourcePixels[index * 4], g: sourcePixels[index * 4 + 1], b: sourcePixels[index * 4 + 2] });
-          }
-        });
-      }
-      for (let y = 0; y < sourceHeight; y += 1) {
-        [0, sourceWidth - 1].forEach((x) => {
-          const index = y * sourceWidth + x;
-          if (sourcePixels[index * 4 + 3] > 80) {
-            borderColors.push({ r: sourcePixels[index * 4], g: sourcePixels[index * 4 + 1], b: sourcePixels[index * 4 + 2] });
-          }
-        });
-      }
-      const borderAverage = borderColors.reduce(
-        (sum, color) => ({ r: sum.r + color.r, g: sum.g + color.g, b: sum.b + color.b }),
-        { r: 0, g: 0, b: 0 },
-      );
-      if (borderColors.length) {
-        borderAverage.r /= borderColors.length;
-        borderAverage.g /= borderColors.length;
-        borderAverage.b /= borderColors.length;
-      }
-      const borderRange = Math.max(borderAverage.r, borderAverage.g, borderAverage.b) - Math.min(borderAverage.r, borderAverage.g, borderAverage.b);
-      const hasWhiteBackground = borderColors.length > 0
-        && Math.min(borderAverage.r, borderAverage.g, borderAverage.b) > 232
-        && borderRange < 28;
-
       const samples: Rgb[] = [];
       const sourceStep = Math.max(1, Math.ceil(Math.sqrt((sourceWidth * sourceHeight) / 120000)));
       for (let y = 0; y < sourceHeight; y += sourceStep) {
@@ -1048,8 +1113,6 @@ export default function Home() {
         });
         return nearestIndex;
       };
-      const backgroundCenterIndex = nearestCenter(boostStitchColor(borderAverage));
-      const backgroundCenter = centers[backgroundCenterIndex];
       const luminance = (color: Rgb) => color.r * .299 + color.g * .587 + color.b * .114;
       const saturation = (color: Rgb) =>
         (Math.max(color.r, color.g, color.b) - Math.min(color.r, color.g, color.b)) / 255;
@@ -1179,45 +1242,6 @@ export default function Home() {
         }
       }
 
-      const blank = new Uint8Array(gridSize * gridSize);
-      for (let index = 0; index < blank.length; index += 1) {
-        if (gridChoice[index] < 0) blank[index] = 1;
-      }
-
-      if (hasWhiteBackground) {
-        const visited = new Uint8Array(gridSize * gridSize);
-        const queue: number[] = [];
-        const canFlood = (index: number) => {
-          const choice = gridChoice[index];
-          if (choice < 0) return true;
-          const color = centers[choice];
-          return choice === backgroundCenterIndex
-            || colorDistance(color, backgroundCenter) < 64;
-        };
-        const seed = (index: number) => {
-          if (!visited[index] && canFlood(index)) {
-            visited[index] = 1;
-            queue.push(index);
-          }
-        };
-        for (let i = 0; i < gridSize; i += 1) {
-          seed(i);
-          seed((gridSize - 1) * gridSize + i);
-          seed(i * gridSize);
-          seed(i * gridSize + gridSize - 1);
-        }
-        for (let cursor = 0; cursor < queue.length; cursor += 1) {
-          const index = queue[cursor];
-          blank[index] = 1;
-          const x = index % gridSize;
-          const y = Math.floor(index / gridSize);
-          if (x > 0) seed(index - 1);
-          if (x < gridSize - 1) seed(index + 1);
-          if (y > 0) seed(index - gridSize);
-          if (y < gridSize - 1) seed(index + gridSize);
-        }
-      }
-
       const customColors: ThreadColor[] = centers.map((center, index) => {
         const hex = toHex(center);
         return {
@@ -1226,14 +1250,7 @@ export default function Home() {
           hex,
         };
       });
-      const nextGrid: number[] = [];
-      for (let index = 0; index < gridSize * gridSize; index += 1) {
-        if (blank[index]) {
-          nextGrid.push(-1);
-          continue;
-        }
-        nextGrid.push(gridChoice[index]);
-      }
+      const nextGrid = Array.from(gridChoice);
       const usedColors = new Set(nextGrid.filter((value) => value >= 0)).size;
       const uploaded: Pattern = {
         id: `upload-${Date.now()}`,
@@ -1353,24 +1370,24 @@ export default function Home() {
             </div>
             <aside className="conversion-settings">
               <div className="fidelity-card">
-                <p className="eyebrow">MAXIMUM FIDELITY</p>
-                <h2>自动高清还原</h2>
-                <p>不再限制真实线号，也不需要设置精细度。系统会用 80 × 80 高清网格识别原图主色，并特别保留黑色轮廓、高光与细小线条。</p>
+                <p className="eyebrow">CONVERT &amp; REFINE</p>
+                <h2>完整转换，再亲手校对</h2>
+                <p>系统会用 80 × 80 高清网格完整转换图片，不再自动删除白色区域。生成后可亲自决定每一格是否需要绣，以及使用哪一种颜色。</p>
               </div>
               <div className="conversion-feature"><span>▦</span><p><b>原图自适应配色</b><small>直接从图片提取主色、阴影和轮廓色。</small></p></div>
-              <div className="conversion-feature"><span>○</span><p><b>识别内部白色</b><small>角色、衣服与图案内的白色会保留为白色针脚。</small></p></div>
-              <div className="conversion-feature"><span>◩</span><p><b>智能判断背景</b><small>纯白外部背景留空；彩色背景完整生成针脚。</small></p></div>
-              <button className="primary wide" onClick={convertUpload}>{uploadPreview ? "生成十字绣图纸" : "先选择一张图片"} <span>→</span></button>
+              <div className="conversion-feature"><span>✎</span><p><b>手动选择绣区</b><small>使用留空笔刷擦除背景，也能重新补回需要的针格。</small></p></div>
+              <div className="conversion-feature"><span>◉</span><p><b>自由修改颜色</b><small>从配线板选色或添加自定义线色，再点击或拖动格子上色。</small></p></div>
+              <button className="primary wide" onClick={convertUpload}>{uploadPreview ? "生成并校对图纸" : "先选择一张图片"} <span>→</span></button>
             </aside>
           </div>
-          <div className="upload-tips"><span>✦</span><p><b>小提示</b> 人像可以先裁掉复杂背景；宠物照片优先选择正面或侧面轮廓清楚的画面，生成效果会更好。</p></div>
+          <div className="upload-tips"><span>✦</span><p><b>小提示</b> 生成后会直接进入校对模式。选择“留空”并拖动即可快速擦掉不需要绣的背景。</p></div>
         </section>
       )}
 
       {view === "projects" && (
         <section className="page-shell projects-page">
           <div className="projects-heading">
-            <div><p className="eyebrow">MY STITCHING SHELF</p><h1>我的绣框</h1><p>开始落下第一针后，作品会自动保存在这里。</p></div>
+            <div><p className="eyebrow">MY STITCHING SHELF</p><h1>我的绣框</h1><p>校对过的图纸和已经开始的作品都会自动保存在这里。</p></div>
             <div><button className="secondary" onClick={() => setView("gallery")}>挑选新图纸</button><button className="primary" onClick={() => setView("upload")}>上传图片 <span>→</span></button></div>
           </div>
           {projectsLoading ? (
@@ -1404,7 +1421,7 @@ export default function Home() {
               })}
             </div>
           ) : (
-            <div className="projects-empty"><span>×</span><h2>这里还没有作品</h2><p>从图纸库选择一幅，或上传自己的图片，落下第一针后就会自动保存。</p><button className="primary" onClick={() => setView("gallery")}>开始第一幅作品 <span>→</span></button></div>
+            <div className="projects-empty"><span>×</span><h2>这里还没有作品</h2><p>从图纸库选择一幅，或上传图片并完成校对，作品就会自动保存在这里。</p><button className="primary" onClick={() => setView("gallery")}>开始第一幅作品 <span>→</span></button></div>
           )}
         </section>
       )}
@@ -1418,7 +1435,7 @@ export default function Home() {
                 <input value={pattern.name} onChange={(event) => renamePattern(event.target.value)} disabled={Boolean(sharedFrom)} aria-label="作品名称" />
                 {!sharedFrom && <i>✎</i>}
               </label>
-              <span>{sharedFrom ? `来自 ${sharedFrom} 的完成作品` : "点击名称即可修改"} · {pattern.size} × {pattern.size} 针 · {palette.length} 色</span>
+              <span>{sharedFrom ? `来自 ${sharedFrom} 的完成作品` : editingPattern ? "正在校对图纸" : "点击名称即可修改"} · {pattern.size} × {pattern.size} 针 · {palette.length} 色</span>
             </div>
             <div className="studio-actions">
               {!sharedFrom && <span className={`save-state state-${saveStatus}`}>
@@ -1427,88 +1444,90 @@ export default function Home() {
                 {saveStatus === "saved" && `已保存${lastSavedAt ? ` · ${new Date(lastSavedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}` : ""}`}
                 {saveStatus === "error" && "保存失败"}
               </span>}
-              {!sharedFrom && <button onClick={undo}>↶ 撤销</button>}
-              {!sharedFrom && <button onClick={resetProgress}>重置</button>}
-              {progress === 100 && <button onClick={() => downloadFinished("transparent")}>保存透明图</button>}
-              {progress === 100 && <button onClick={() => downloadFinished("white")}>保存白底图</button>}
-              {progress === 100 && <button className="share-button" onClick={openShare}>✉ 分享</button>}
-              <button className="preview-button" onClick={previewFinishedPattern}>◉ {previewing ? "预览中…" : "预览成品"}</button>
+              {!sharedFrom && !editingPattern && <button onClick={undo}>↶ 撤销</button>}
+              {!sharedFrom && !editingPattern && <button onClick={resetProgress}>重置</button>}
+              {!sharedFrom && <button className={editingPattern ? "edit-pattern active" : "edit-pattern"} onClick={togglePatternEditor}>{editingPattern ? "✓ 完成校对" : "✎ 编辑图纸"}</button>}
+              {progress === 100 && !editingPattern && <button onClick={() => downloadFinished("transparent")}>保存透明图</button>}
+              {progress === 100 && !editingPattern && <button onClick={() => downloadFinished("white")}>保存白底图</button>}
+              {progress === 100 && !editingPattern && <button className="share-button" onClick={openShare}>✉ 分享</button>}
+              {!editingPattern && <button className="preview-button" onClick={previewFinishedPattern}>◉ {previewing ? "预览中…" : "预览成品"}</button>}
               {!sharedFrom && <button className="save-progress" onClick={saveProgress} disabled={saveStatus === "saving"}>▣ 保存进度</button>}
             </div>
           </div>
           <div className="studio-layout">
             <aside className="tool-rail">
-              <button className="active" title="单针模式">⌁<span>单针</span></button>
-              <button title="放大图纸">＋<span>放大</span></button>
+              {editingPattern ? (
+                <>
+                  <button className={editTool === "paint" ? "active" : ""} title="用当前颜色上色" onClick={() => setEditTool("paint")}>✎<span>上色</span></button>
+                  <button className={editTool === "erase" ? "active erase-tool" : "erase-tool"} title="设为不需要绣" onClick={() => { setEditTool("erase"); setEditBrushSize(3); }}>⌫<span>留空</span></button>
+                  <button title="切换笔刷大小" onClick={() => setEditBrushSize((size) => size === 1 ? 3 : size === 3 ? 5 : 1)}>●<span>{editBrushSize} 格笔刷</span></button>
+                  <p className="rail-hint">按住拖动<br />连续修改</p>
+                </>
+              ) : (
+                <>
+                  <button className="active" title="单针模式">⌁<span>单针</span></button>
+                  <button title="放大图纸">＋<span>放大</span></button>
+                </>
+              )}
             </aside>
             <div className="canvas-stage">
               <div className="canvas-paper">
                 <CrossCanvas
                   pattern={pattern}
-                  stitched={previewing ? undefined : stitched}
+                  stitched={editingPattern || previewing ? undefined : stitched}
                   selectedColor={selectedColor}
                   animatedIndex={animatedIndex}
                   animationNonce={animationNonce}
                   highlightFlash={highlightFlash}
-                  onStitch={previewing ? undefined : stitchCell}
+                  onStitch={editingPattern || previewing ? undefined : stitchCell}
+                  onEdit={editingPattern ? editPatternCell : undefined}
                 />
                 {previewing && <div className="preview-notice"><span>◉</span><b>完整成品预览</b><small>3 秒后自动返回当前进度</small></div>}
+                {editingPattern && <div className="edit-notice"><span>{editTool === "paint" ? "✎" : "⌫"}</span><b>{editTool === "paint" ? "正在使用当前线色上色" : "正在将格子设为留空"}</b><small>点击或按住拖动 · 当前 {editBrushSize} 格笔刷</small></div>}
               </div>
-              <div className="progress-card"><div><span>今日针迹</span><b>{stitched.size} / {patternCells.length}</b></div><div className="progress-track"><i style={{ width: `${progress}%` }} /></div><strong>{progress}%</strong></div>
+              {editingPattern ? (
+                <div className="edit-summary"><span>图纸校对中</span><b>{patternCells.length} 格需要绣</b><small>修改会自动保存，并用于之后的成品与分享。</small></div>
+              ) : (
+                <div className="progress-card"><div><span>今日针迹</span><b>{stitched.size} / {patternCells.length}</b></div><div className="progress-track"><i style={{ width: `${progress}%` }} /></div><strong>{progress}%</strong></div>
+              )}
             </div>
             <aside className="thread-panel">
-              <div className="thread-heading"><div><p className="eyebrow">THREAD BOARD</p><h2>配线板</h2></div><span>{palette.length} 色</span></div>
-              <p className="thread-guide">图纸里的编号与每束线上的编号完全相同。先选线束，再绣所有被突出显示的同号格子。</p>
+              <div className="thread-heading"><div><p className="eyebrow">THREAD BOARD</p><h2>{editingPattern ? "选择颜色" : "配线板"}</h2></div><span>{editingPattern ? `${editorPalette.length} 可用色` : `${palette.length} 色`}</span></div>
+              <p className="thread-guide">{editingPattern ? "选择一束线后，在图纸上点击或拖动上色；也可以添加任意自选颜色。" : "图纸里的编号与每束线上的编号完全相同。先选线束，再绣所有被突出显示的同号格子。"}</p>
               <div className="match-tip" aria-label="图纸编号与配线编号对应示例">
-                <span>图纸格 <b>{palette.indexOf(selectedColor) + 1}</b></span>
+                <span>{editingPattern ? "当前颜色" : "图纸格"} <b>{pattern.colors ? selectedColor + 1 : palette.indexOf(selectedColor) + 1}</b></span>
                 <i>→</i>
-                <span>配线束 <b>{palette.indexOf(selectedColor) + 1}</b></span>
+                <span>{editingPattern ? "笔刷格数" : "配线束"} <b>{editingPattern ? editBrushSize : pattern.colors ? selectedColor + 1 : palette.indexOf(selectedColor) + 1}</b></span>
               </div>
+              {editingPattern && <label className="custom-color-picker"><span>＋ 添加自选线色</span><input type="color" value={activeThreads[selectedColor]?.hex || "#B9533F"} onChange={(event) => addCustomColor(event.target.value)} /></label>}
               <div className="thread-list">
-                {palette.map((colorIndex, paletteIndex) => {
+                {editorPalette.map((colorIndex, paletteIndex) => {
                   const total = pattern.grid.filter((c) => c === colorIndex).length;
                   const done = pattern.grid.filter((c, index) => c === colorIndex && stitched.has(index)).length;
+                  const displayNumber = pattern.colors ? colorIndex + 1 : paletteIndex + 1;
                   return (
                     <button key={colorIndex} className={selectedColor === colorIndex ? "selected" : ""} onClick={() => selectThread(colorIndex)}>
                       <span className="floss-bundle" style={{ "--floss": activeThreads[colorIndex].hex } as React.CSSProperties}>
                         <i /><i /><i /><i /><i /><i /><i />
-                        <em>{paletteIndex + 1}</em>
+                        <em>{displayNumber}</em>
                         <strong />
                       </span>
                       <span className="thread-copy">
-                        <b>{pattern.colors ? `图色 ${paletteIndex + 1}` : `DMC ${activeThreads[colorIndex].code}`}</b>
-                        <small>图纸编号 {paletteIndex + 1} · {activeThreads[colorIndex].name}</small>
+                        <b>{pattern.colors ? `图色 ${displayNumber}` : `DMC ${activeThreads[colorIndex].code}`}</b>
+                        <small>图纸编号 {displayNumber} · {activeThreads[colorIndex].name}</small>
                       </span>
-                      <span className="remaining">{done === total ? "完成" : `余 ${total - done}`}</span>
+                      <span className="remaining">{editingPattern ? `已用 ${total}` : done === total ? "完成" : `余 ${total - done}`}</span>
                     </button>
                   );
                 })}
               </div>
-              <div className="shopping-note"><span>✓</span><p><b>{pattern.colors ? "原图配色已提取" : "配线已核对"}</b><small>{pattern.colors ? "本图不受 DMC 色库限制，请按屏幕色卡挑选最接近的线。" : "以上线号与图纸一一对应，购买时按 DMC 编号选择即可。"}</small></p></div>
+              <div className="shopping-note"><span>✓</span><p><b>{editingPattern ? "修改会保留" : pattern.colors ? "原图配色已提取" : "配线已核对"}</b><small>{editingPattern ? "保存进度、导出成品和分享给朋友时，都会使用当前修改后的图纸。" : pattern.colors ? "本图不受 DMC 色库限制，请按屏幕色卡挑选最接近的线。" : "以上线号与图纸一一对应，购买时按 DMC 编号选择即可。"}</small></p></div>
             </aside>
           </div>
         </section>
       )}
 
       <footer><div className="brand footer-brand"><span className="brand-mark"><i>×</i><i>×</i><i>×</i><i>×</i></span><span><b>针迹小屋</b><small>STITCH &amp; SLOW</small></span></div><p>把快生活，绣得慢一点。</p><span>高清图片转换 · 原创练习图纸</span></footer>
-
-      {celebrationOpen && (
-        <div className="modal-backdrop celebration-backdrop" role="presentation">
-          <div className="confetti" aria-hidden="true">{Array.from({ length: 28 }, (_, index) => <i key={index} style={{ "--i": index } as React.CSSProperties} />)}</div>
-          <section className="celebration-modal" role="dialog" aria-modal="true" aria-label="作品完成">
-            <span className="celebration-hoop">×</span>
-            <p className="eyebrow">STITCHED WITH LOVE</p>
-            <h2>最后一针，完成啦！</h2>
-            <p>《{pattern.name}》已经全部绣好。现在可以保存无网格成品图，或把作品装进信封寄给朋友。</p>
-            <div className="celebration-actions">
-              <button className="secondary" onClick={() => downloadFinished("transparent")}>保存透明底图片</button>
-              <button className="secondary" onClick={() => downloadFinished("white")}>保存白底图片</button>
-              <button className="primary" onClick={() => { setCelebrationOpen(false); openShare(); }}>分享给朋友 <span>→</span></button>
-            </div>
-            <button className="text-button" onClick={() => setCelebrationOpen(false)}>暂时不用，回到作品</button>
-          </section>
-        </div>
-      )}
 
       {shareOpen && <ShareModal patternName={pattern.name} phase={sharePhase} onClose={() => setShareOpen(false)} onSend={sendShare} />}
       {authOpen && <AuthModal onClose={() => setAuthOpen(false)} onSuccess={(email) => {
