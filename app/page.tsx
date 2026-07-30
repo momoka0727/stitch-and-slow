@@ -16,6 +16,7 @@ type Pattern = {
   size: number;
   minutes: number;
   grid: number[];
+  originalGrid?: number[];
   colors?: ThreadColor[];
 };
 
@@ -668,8 +669,16 @@ export default function Home() {
     }
     try {
       const savedPattern = JSON.parse(row.patternJson) as Pattern;
+      const builtInOriginal = PATTERNS.find((item) => item.id === savedPattern.id)?.grid;
       // Keep the exact saved grid so user-selected replacement colors survive reopening.
-      const restoredPattern = savedPattern;
+      const restoredPattern = {
+        ...savedPattern,
+        originalGrid: savedPattern.originalGrid?.length === savedPattern.grid.length
+          ? [...savedPattern.originalGrid]
+          : builtInOriginal?.length === savedPattern.grid.length
+            ? [...builtInOriginal]
+            : [...savedPattern.grid],
+      };
       const restoredStitches = (JSON.parse(row.stitchedJson) as number[])
         .filter((index) => Number.isInteger(index) && index >= 0 && index < restoredPattern.grid.length);
       setPattern(restoredPattern);
@@ -748,7 +757,12 @@ export default function Home() {
   };
 
   const openPattern = (next: Pattern) => {
-    setPattern(next);
+    const preparedPattern = {
+      ...next,
+      grid: [...next.grid],
+      originalGrid: next.originalGrid?.length === next.grid.length ? [...next.originalGrid] : [...next.grid],
+    };
+    setPattern(preparedPattern);
     setSelectedColor(Array.from(new Set(next.grid.filter((v) => v >= 0)))[0] || 0);
     setStitched(new Set());
     setSaveStatus("idle");
@@ -768,6 +782,13 @@ export default function Home() {
   const stitchCell = (index: number) => {
     if (sharedFrom || !activeThreads[selectedColor]) return;
     if (stitched.has(index)) {
+      setPattern((current) => {
+        const original = current.originalGrid?.[index];
+        if (original === undefined || current.grid[index] === original) return current;
+        const grid = [...current.grid];
+        grid[index] = original;
+        return { ...current, grid };
+      });
       setStitched((current) => {
         const next = new Set(current);
         next.delete(index);
@@ -778,10 +799,13 @@ export default function Home() {
       return;
     }
     setPattern((current) => {
-      if (current.grid[index] === selectedColor) return current;
+      const originalGrid = current.originalGrid?.length === current.grid.length
+        ? current.originalGrid
+        : [...current.grid];
+      if (current.grid[index] === selectedColor && current.originalGrid) return current;
       const grid = [...current.grid];
       grid[index] = selectedColor;
-      return { ...current, grid };
+      return { ...current, grid, originalGrid };
     });
     setStitched((current) => new Set(current).add(index));
     setSaveStatus("dirty");
@@ -809,19 +833,36 @@ export default function Home() {
   const undo = () => {
     const values = Array.from(stitched);
     if (!values.length) return;
-    values.pop();
+    const index = values.pop();
+    if (index !== undefined) {
+      setPattern((current) => {
+        const original = current.originalGrid?.[index];
+        if (original === undefined || current.grid[index] === original) return current;
+        const grid = [...current.grid];
+        grid[index] = original;
+        return { ...current, grid };
+      });
+    }
     setStitched(new Set(values));
     setSaveStatus("dirty");
   };
 
   const resetProgress = () => {
+    setPattern((current) => current.originalGrid?.length === current.grid.length
+      ? { ...current, grid: [...current.originalGrid] }
+      : current);
     setStitched(new Set());
     setSaveStatus("dirty");
     setAnimatedIndex(null);
   };
 
-  const persistProgress = async (silent = false) => {
-    if (!user || saveStatus === "saving" || sharedFrom) return;
+  const persistProgress = async (
+    silent = false,
+    patternToSave = pattern,
+    stitchesToSave = stitched,
+    successMessage = "当前进度已保存",
+  ) => {
+    if (!user || saveStatus === "saving" || sharedFrom) return false;
     setSaveStatus("saving");
     try {
       const response = await fetch("/api/progress", {
@@ -829,23 +870,35 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           userEmail: user,
-          patternId: pattern.id,
-          pattern,
-          stitched: Array.from(stitched),
+          patternId: patternToSave.id,
+          pattern: patternToSave,
+          stitched: Array.from(stitchesToSave),
         }),
       });
       if (!response.ok) throw new Error("save failed");
       const result = await response.json() as { savedAt: number };
       setLastSavedAt(result.savedAt);
       setSaveStatus("saved");
-      if (!silent) showToast("当前进度已保存");
+      if (!silent) showToast(successMessage);
+      return true;
     } catch {
       setSaveStatus("error");
       if (!silent) showToast("保存失败，请稍后再试");
+      return false;
     }
   };
 
   const saveProgress = () => void persistProgress(false);
+
+  const finishPattern = () => {
+    if (progress < 100) {
+      showToast("全部绣完后即可完成并保存图纸");
+      return;
+    }
+    const completedPattern = { ...pattern, originalGrid: [...pattern.grid] };
+    setPattern(completedPattern);
+    void persistProgress(false, completedPattern, stitched, "完成图纸和标记已保存");
+  };
 
   useEffect(() => {
     if (saveStatus !== "dirty" || !user || view !== "studio" || sharedFrom) return;
@@ -1357,6 +1410,7 @@ export default function Home() {
               </span>}
               {!sharedFrom && <button onClick={undo}>↶ 撤销</button>}
               {!sharedFrom && <button onClick={resetProgress}>重置</button>}
+              {progress === 100 && !sharedFrom && <button className="finish-pattern" onClick={finishPattern} disabled={saveStatus === "saving"}>✓ 完成并保存</button>}
               {progress === 100 && <button onClick={() => downloadFinished("transparent")}>保存透明图</button>}
               {progress === 100 && <button onClick={() => downloadFinished("white")}>保存白底图</button>}
               {progress === 100 && <button className="share-button" onClick={openShare}>✉ 分享</button>}
@@ -1386,7 +1440,7 @@ export default function Home() {
             </div>
             <aside className="thread-panel">
               <div className="thread-heading"><div><p className="eyebrow">THREAD BOARD</p><h2>配线板</h2></div><span>{palette.length} 色</span></div>
-              <p className="thread-guide">先在配线板选择颜色，再点击任意格子落针；无需遵循原图纸编号。点一下已经绣好的格子可以拆除该针。</p>
+              <p className="thread-guide">先在配线板选择颜色，再点击任意格子落针；无需遵循原图纸编号。拆针或撤销后会恢复该格原来的图纸标记。</p>
               <div className="match-tip" aria-label="自由配色提示">
                 <span>当前线色 <b>{pattern.colors ? selectedColor + 1 : palette.indexOf(selectedColor) + 1}</b></span>
                 <i>→</i>

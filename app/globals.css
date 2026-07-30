@@ -172,6 +172,7 @@ main { min-height: 100vh; overflow: hidden; }
 .studio-actions .save-progress:hover { background: var(--green-dark); }
 .studio-actions .share-button { border-color: var(--rust); color: var(--rust); font-weight: 700; }
 .studio-actions .preview-button { border-color: #9b6f35; background: #f3e6ce; color: #715126; font-weight: 700; }
+.studio-actions .finish-pattern { border-color: var(--green); background: #e5ede3; color: var(--green-dark); font-weight: 800; }
 .save-state { align-self: center; margin-right: 3px; white-space: nowrap; }
 .save-state.state-dirty { color: #9b6f35; }
 .save-state.state-saved { color: var(--green); }
