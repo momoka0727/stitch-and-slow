@@ -240,19 +240,19 @@ function boostStitchColor(color: Rgb): Rgb {
   const max = Math.max(color.r, color.g, color.b);
   const min = Math.min(color.r, color.g, color.b);
   const luminance = color.r * .299 + color.g * .587 + color.b * .114;
-  if (luminance < 150 && max - min < 46) {
-    const scale = luminance < 75 ? .2 : .34;
+  if (luminance < 110 && max - min < 46) {
+    const scale = luminance < 70 ? .25 : .55;
     return { r: color.r * scale, g: color.g * scale, b: color.b * scale };
   }
   const average = (color.r + color.g + color.b) / 3;
-  const saturate = (value: number) => average + (value - average) * 1.38;
-  const contrast = (value: number) => 128 + (value - 128) * 1.17;
-  const depth = luminance < 150 ? 12 : luminance < 210 ? 5 : 0;
+  const saturate = (value: number) => average + (value - average) * 1.32;
+  const contrast = (value: number) => 128 + (value - 128) * 1.08;
+  const lift = luminance < 80 ? 0 : luminance < 155 ? 4 : luminance < 225 ? 8 : 0;
   const clamp = (value: number) => Math.max(0, Math.min(255, value));
   return {
-    r: clamp(contrast(saturate(color.r)) - depth),
-    g: clamp(contrast(saturate(color.g)) - depth),
-    b: clamp(contrast(saturate(color.b)) - depth),
+    r: clamp(contrast(saturate(color.r)) + lift),
+    g: clamp(contrast(saturate(color.g)) + lift),
+    b: clamp(contrast(saturate(color.b)) + lift),
   };
 }
 
@@ -307,11 +307,11 @@ function CrossCanvas({
       const endY = y1 + (y2 - y1) * fraction;
       ctx.save();
       ctx.lineCap = "round";
-      ctx.shadowColor = "rgba(45, 27, 15, .42)";
+      ctx.shadowColor = "rgba(45, 27, 15, .28)";
       ctx.shadowBlur = Math.max(1.2, cell * .11);
       ctx.shadowOffsetX = cell * .045;
       ctx.shadowOffsetY = cell * .075;
-      ctx.strokeStyle = shade(hex, -48);
+      ctx.strokeStyle = shade(hex, -32);
       ctx.lineWidth = Math.max(2.5, cell * .31);
       ctx.beginPath();
       ctx.moveTo(x1, y1);
@@ -319,17 +319,17 @@ function CrossCanvas({
       ctx.stroke();
       ctx.shadowColor = "transparent";
       const body = ctx.createLinearGradient(x1, y1, endX, endY);
-      body.addColorStop(0, shade(hex, -20));
-      body.addColorStop(.38, shade(hex, 12));
+      body.addColorStop(0, shade(hex, -10));
+      body.addColorStop(.38, shade(hex, 20));
       body.addColorStop(.62, hex);
-      body.addColorStop(1, shade(hex, -27));
+      body.addColorStop(1, shade(hex, -16));
       ctx.strokeStyle = body;
       ctx.lineWidth = Math.max(2, cell * .24);
       ctx.beginPath();
       ctx.moveTo(x1, y1);
       ctx.lineTo(endX, endY);
       ctx.stroke();
-      ctx.strokeStyle = "rgba(255,255,255,.2)";
+      ctx.strokeStyle = "rgba(255,255,255,.22)";
       ctx.lineWidth = Math.max(.7, cell * .055);
       ctx.beginPath();
       ctx.moveTo(x1 + cell * .025, y1 - cell * .025);
