@@ -1048,6 +1048,8 @@ export default function Home() {
         });
         return nearestIndex;
       };
+      const backgroundCenterIndex = nearestCenter(boostStitchColor(borderAverage));
+      const backgroundCenter = centers[backgroundCenterIndex];
       const luminance = (color: Rgb) => color.r * .299 + color.g * .587 + color.b * .114;
       const saturation = (color: Rgb) =>
         (Math.max(color.r, color.g, color.b) - Math.min(color.r, color.g, color.b)) / 255;
@@ -1189,8 +1191,8 @@ export default function Home() {
           const choice = gridChoice[index];
           if (choice < 0) return true;
           const color = centers[choice];
-          return Math.min(color.r, color.g, color.b) > 229
-            && Math.max(color.r, color.g, color.b) - Math.min(color.r, color.g, color.b) < 34;
+          return choice === backgroundCenterIndex
+            || colorDistance(color, backgroundCenter) < 64;
         };
         const seed = (index: number) => {
           if (!visited[index] && canFlood(index)) {
