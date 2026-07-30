@@ -172,8 +172,6 @@ main { min-height: 100vh; overflow: hidden; }
 .studio-actions .save-progress:hover { background: var(--green-dark); }
 .studio-actions .share-button { border-color: var(--rust); color: var(--rust); font-weight: 700; }
 .studio-actions .preview-button { border-color: #9b6f35; background: #f3e6ce; color: #715126; font-weight: 700; }
-.studio-actions .edit-pattern { border-color: var(--green); color: var(--green-dark); font-weight: 700; }
-.studio-actions .edit-pattern.active { background: var(--green); color: white; }
 .save-state { align-self: center; margin-right: 3px; white-space: nowrap; }
 .save-state.state-dirty { color: #9b6f35; }
 .save-state.state-saved { color: var(--green); }
@@ -183,18 +181,12 @@ main { min-height: 100vh; overflow: hidden; }
 .tool-rail button { width: 52px; min-height: 58px; border: 0; background: transparent; display: grid; place-items: center; align-content: center; gap: 4px; cursor: pointer; font-size: 20px; }
 .tool-rail button span { font-size: 9px; }
 .tool-rail button.active { background: var(--green); color: white; }
-.tool-rail button.erase-tool.active { background: var(--rust); }
-.tool-rail .rail-hint { margin: 4px 0 0; color: var(--muted); font-size: 8px; line-height: 1.5; text-align: center; }
 .canvas-stage { min-width: 0; padding: 34px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; background-image: radial-gradient(rgba(67,80,69,.1) 1px, transparent 1px); background-size: 16px 16px; }
 .canvas-paper { position: relative; width: min(650px, 68vw); background: #fbf8f0; padding: 17px; box-shadow: 0 10px 30px rgba(56,45,34,.14); transform: rotate(-.25deg); }
 .stitch-canvas { display: block; width: 100%; height: auto; cursor: crosshair; touch-action: manipulation; }
-.stitch-canvas.editing { cursor: cell; touch-action: none; }
 .preview-notice { position: absolute; z-index: 5; left: 50%; top: 18px; transform: translateX(-50%); min-width: 210px; padding: 9px 13px; display: grid; grid-template-columns: 27px 1fr; column-gap: 8px; background: rgba(36,50,43,.92); color: white; box-shadow: 0 8px 18px rgba(30,28,22,.22); text-align: left; animation: preview-in .22s ease-out; pointer-events: none; }
 .preview-notice > span { grid-row: 1 / 3; align-self: center; font-size: 20px; color: #f0bc68; }
 .preview-notice b { font-size: 10px; }.preview-notice small { color: rgba(255,255,255,.7); font-size: 8px; margin-top: 2px; }
-.edit-notice { position: absolute; z-index: 5; left: 50%; top: 18px; transform: translateX(-50%); min-width: 250px; padding: 9px 13px; display: grid; grid-template-columns: 27px 1fr; column-gap: 8px; background: rgba(65,100,83,.94); color: white; box-shadow: 0 8px 18px rgba(30,28,22,.2); text-align: left; pointer-events: none; }
-.edit-notice > span { grid-row: 1 / 3; align-self: center; font-size: 19px; color: #f3d49a; }
-.edit-notice b { font-size: 10px; }.edit-notice small { margin-top: 2px; color: rgba(255,255,255,.74); font-size: 8px; }
 @keyframes preview-in { from { opacity: 0; transform: translate(-50%, -8px); } }
 .progress-card { width: min(520px, 62vw); margin-top: 23px; display: grid; grid-template-columns: 110px 1fr 40px; gap: 15px; align-items: center; padding: 11px 15px; background: rgba(255,255,255,.7); border: 1px solid var(--line); }
 .progress-card > div:first-child { display: flex; flex-direction: column; }
@@ -202,8 +194,6 @@ main { min-height: 100vh; overflow: hidden; }
 .progress-track { height: 6px; background: #ddd5c7; border-radius: 999px; overflow: hidden; }
 .progress-track i { display: block; height: 100%; background: var(--rust); border-radius: inherit; transition: width .25s; }
 .progress-card strong { color: var(--rust); font-size: 12px; }
-.edit-summary { width: min(520px, 62vw); margin-top: 23px; padding: 12px 15px; display: grid; grid-template-columns: auto auto 1fr; gap: 14px; align-items: center; border: 1px solid rgba(65,100,83,.35); background: rgba(255,255,255,.72); }
-.edit-summary span { color: var(--green); font-size: 10px; font-weight: 700; }.edit-summary b { font-size: 11px; }.edit-summary small { color: var(--muted); font-size: 9px; text-align: right; }
 .thread-panel { background: #f7f1e6; border-left: 1px solid var(--line); padding: 27px 20px; }
 .thread-heading { display: flex; justify-content: space-between; align-items: start; }
 .thread-heading .eyebrow { margin-bottom: 4px; font-size: 8px; }
@@ -214,8 +204,6 @@ main { min-height: 100vh; overflow: hidden; }
 .match-tip span { display: flex; align-items: center; justify-content: center; gap: 6px; }
 .match-tip b { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--green); color: white; font: 700 11px ui-monospace, monospace; }
 .match-tip i { color: var(--rust); font-style: normal; font-size: 16px; }
-.custom-color-picker { margin: 0 0 12px; padding: 9px 11px; display: flex; align-items: center; justify-content: space-between; border: 1px dashed rgba(65,100,83,.42); background: rgba(255,255,255,.5); color: var(--green-dark); font-size: 10px; font-weight: 700; cursor: pointer; }
-.custom-color-picker input { width: 34px; height: 26px; padding: 0; border: 0; background: transparent; cursor: pointer; }
 .thread-list { max-height: 405px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 5px; }
 .thread-list button { display: flex; align-items: center; min-height: 70px; padding: 8px 9px; border: 1px solid transparent; background: rgba(255,255,255,.48); text-align: left; cursor: pointer; transition: border-color .18s, background .18s, transform .18s; }
 .thread-list button:hover { background: rgba(255,255,255,.78); transform: translateX(-2px); }
