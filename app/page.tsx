@@ -668,7 +668,8 @@ export default function Home() {
     }
     try {
       const savedPattern = JSON.parse(row.patternJson) as Pattern;
-      const restoredPattern = PATTERNS.find((item) => item.id === savedPattern.id) || savedPattern;
+      // Keep the exact saved grid so user-selected replacement colors survive reopening.
+      const restoredPattern = savedPattern;
       const restoredStitches = (JSON.parse(row.stitchedJson) as number[])
         .filter((index) => Number.isInteger(index) && index >= 0 && index < restoredPattern.grid.length);
       setPattern(restoredPattern);
@@ -765,8 +766,7 @@ export default function Home() {
   };
 
   const stitchCell = (index: number) => {
-    const target = pattern.grid[index];
-    if (target < 0 || sharedFrom) return;
+    if (sharedFrom || !activeThreads[selectedColor]) return;
     if (stitched.has(index)) {
       setStitched((current) => {
         const next = new Set(current);
@@ -777,14 +777,12 @@ export default function Home() {
       setSaveStatus("dirty");
       return;
     }
-    if (target !== selectedColor) {
-      const needed = activeThreads[target];
-      const targetNumber = pattern.colors ? target + 1 : palette.indexOf(target) + 1;
-      showToast(pattern.colors
-        ? `这里需要图纸编号 ${targetNumber} · ${needed.name}`
-        : `这里需要 DMC ${needed.code} · ${needed.name}`);
-      return;
-    }
+    setPattern((current) => {
+      if (current.grid[index] === selectedColor) return current;
+      const grid = [...current.grid];
+      grid[index] = selectedColor;
+      return { ...current, grid };
+    });
     setStitched((current) => new Set(current).add(index));
     setSaveStatus("dirty");
     setAnimatedIndex(index);
@@ -1388,11 +1386,11 @@ export default function Home() {
             </div>
             <aside className="thread-panel">
               <div className="thread-heading"><div><p className="eyebrow">THREAD BOARD</p><h2>配线板</h2></div><span>{palette.length} 色</span></div>
-              <p className="thread-guide">图纸里的编号与每束线上的编号完全相同。先选线束，再绣同号格子；点一下已经绣好的格子可以拆除该针。</p>
-              <div className="match-tip" aria-label="图纸编号与配线编号对应示例">
-                <span>图纸格 <b>{pattern.colors ? selectedColor + 1 : palette.indexOf(selectedColor) + 1}</b></span>
+              <p className="thread-guide">先在配线板选择颜色，再点击任意格子落针；无需遵循原图纸编号。点一下已经绣好的格子可以拆除该针。</p>
+              <div className="match-tip" aria-label="自由配色提示">
+                <span>当前线色 <b>{pattern.colors ? selectedColor + 1 : palette.indexOf(selectedColor) + 1}</b></span>
                 <i>→</i>
-                <span>配线束 <b>{pattern.colors ? selectedColor + 1 : palette.indexOf(selectedColor) + 1}</b></span>
+                <span>任意格子 <b>✓</b></span>
               </div>
               <div className="thread-list">
                 {palette.map((colorIndex, paletteIndex) => {
