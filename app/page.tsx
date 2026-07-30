@@ -245,9 +245,10 @@ function boostStitchColor(color: Rgb): Rgb {
     return { r: color.r * scale, g: color.g * scale, b: color.b * scale };
   }
   const average = (color.r + color.g + color.b) / 3;
-  const saturate = (value: number) => average + (value - average) * 1.32;
-  const contrast = (value: number) => 128 + (value - 128) * 1.08;
-  const lift = luminance < 80 ? 0 : luminance < 155 ? 4 : luminance < 225 ? 8 : 0;
+  const saturationFactor = max - min < 18 ? 1 : 1.65;
+  const saturate = (value: number) => average + (value - average) * saturationFactor;
+  const contrast = (value: number) => 128 + (value - 128) * 1.06;
+  const lift = luminance < 80 ? 0 : luminance < 155 ? 5 : luminance < 225 ? 10 : 0;
   const clamp = (value: number) => Math.max(0, Math.min(255, value));
   return {
     r: clamp(contrast(saturate(color.r)) + lift),
@@ -311,25 +312,25 @@ function CrossCanvas({
       ctx.shadowBlur = Math.max(1.2, cell * .11);
       ctx.shadowOffsetX = cell * .045;
       ctx.shadowOffsetY = cell * .075;
-      ctx.strokeStyle = shade(hex, -32);
-      ctx.lineWidth = Math.max(2.5, cell * .31);
+      ctx.strokeStyle = shade(hex, -28);
+      ctx.lineWidth = Math.max(2.7, cell * .34);
       ctx.beginPath();
       ctx.moveTo(x1, y1);
       ctx.lineTo(endX, endY);
       ctx.stroke();
       ctx.shadowColor = "transparent";
       const body = ctx.createLinearGradient(x1, y1, endX, endY);
-      body.addColorStop(0, shade(hex, -10));
-      body.addColorStop(.38, shade(hex, 20));
+      body.addColorStop(0, shade(hex, -8));
+      body.addColorStop(.38, shade(hex, 8));
       body.addColorStop(.62, hex);
-      body.addColorStop(1, shade(hex, -16));
+      body.addColorStop(1, shade(hex, -12));
       ctx.strokeStyle = body;
-      ctx.lineWidth = Math.max(2, cell * .24);
+      ctx.lineWidth = Math.max(2.2, cell * .27);
       ctx.beginPath();
       ctx.moveTo(x1, y1);
       ctx.lineTo(endX, endY);
       ctx.stroke();
-      ctx.strokeStyle = "rgba(255,255,255,.22)";
+      ctx.strokeStyle = "rgba(255,255,255,.12)";
       ctx.lineWidth = Math.max(.7, cell * .055);
       ctx.beginPath();
       ctx.moveTo(x1 + cell * .025, y1 - cell * .025);
