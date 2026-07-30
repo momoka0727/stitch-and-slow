@@ -180,13 +180,18 @@ function createAdaptivePalette(samples: Rgb[], limit = 28) {
   }));
   points.sort((a, b) => b.count - a.count);
   if (!points.length) return [{ r: 255, g: 255, b: 255 }];
+  const population = points.reduce((sum, point) => sum + point.count, 0);
+  const filteredPoints = points
+    .filter((point) => point.count >= Math.max(2, population * .00035))
+    .slice(0, 180);
+  const meaningfulPoints = filteredPoints.length ? filteredPoints : points.slice(0, 180);
 
-  const target = Math.min(limit, points.length);
-  const centers: Rgb[] = [{ r: points[0].r, g: points[0].g, b: points[0].b }];
+  const target = Math.min(limit, meaningfulPoints.length);
+  const centers: Rgb[] = [{ r: meaningfulPoints[0].r, g: meaningfulPoints[0].g, b: meaningfulPoints[0].b }];
   while (centers.length < target) {
-    let best = points[0];
+    let best = meaningfulPoints[0];
     let bestScore = -1;
-    points.forEach((point) => {
+    meaningfulPoints.forEach((point) => {
       const nearest = Math.min(...centers.map((center) => colorDistance(point, center)));
       const score = nearest * Math.sqrt(point.count);
       if (score > bestScore) {
@@ -199,7 +204,7 @@ function createAdaptivePalette(samples: Rgb[], limit = 28) {
 
   for (let iteration = 0; iteration < 9; iteration += 1) {
     const groups = centers.map(() => ({ r: 0, g: 0, b: 0, count: 0 }));
-    points.forEach((point) => {
+    meaningfulPoints.forEach((point) => {
       let nearestIndex = 0;
       let nearestDistance = Infinity;
       centers.forEach((center, index) => {
@@ -240,8 +245,8 @@ function boostStitchColor(color: Rgb): Rgb {
     return { r: color.r * scale, g: color.g * scale, b: color.b * scale };
   }
   const average = (color.r + color.g + color.b) / 3;
-  const saturate = (value: number) => average + (value - average) * 1.12;
-  const contrast = (value: number) => 128 + (value - 128) * 1.08;
+  const saturate = (value: number) => average + (value - average) * 1.28;
+  const contrast = (value: number) => 128 + (value - 128) * 1.14;
   const clamp = (value: number) => Math.max(0, Math.min(255, value));
   return {
     r: clamp(contrast(saturate(color.r))),
@@ -967,38 +972,34 @@ export default function Home() {
     const image = new Image();
     image.onload = () => {
       const gridSize = 64;
-      const canvas = document.createElement("canvas");
-      canvas.width = gridSize;
-      canvas.height = gridSize;
-      const ctx = canvas.getContext("2d", { willReadFrequently: true });
-      if (!ctx) return;
-      ctx.clearRect(0, 0, gridSize, gridSize);
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = "high";
-      const scale = Math.min(gridSize / image.width, gridSize / image.height);
-      const width = image.width * scale;
-      const height = image.height * scale;
-      const offsetX = (gridSize - width) / 2;
-      const offsetY = (gridSize - height) / 2;
-      ctx.drawImage(image, offsetX, offsetY, width, height);
-      const pixels = ctx.getImageData(0, 0, gridSize, gridSize).data;
+      const sourceScale = Math.min(1, 512 / Math.max(image.width, image.height));
+      const sourceWidth = Math.max(1, Math.round(image.width * sourceScale));
+      const sourceHeight = Math.max(1, Math.round(image.height * sourceScale));
+      const sourceCanvas = document.createElement("canvas");
+      sourceCanvas.width = sourceWidth;
+      sourceCanvas.height = sourceHeight;
+      const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
+      if (!sourceContext) return;
+      sourceContext.imageSmoothingEnabled = true;
+      sourceContext.imageSmoothingQuality = "high";
+      sourceContext.drawImage(image, 0, 0, sourceWidth, sourceHeight);
+      const sourcePixels = sourceContext.getImageData(0, 0, sourceWidth, sourceHeight).data;
 
-      const blank = new Uint8Array(gridSize * gridSize);
       const borderColors: Rgb[] = [];
-      const left = Math.max(0, Math.floor(offsetX));
-      const right = Math.min(gridSize - 1, Math.ceil(offsetX + width) - 1);
-      const top = Math.max(0, Math.floor(offsetY));
-      const bottom = Math.min(gridSize - 1, Math.ceil(offsetY + height) - 1);
-      for (let x = left; x <= right; x += 1) {
-        [top, bottom].forEach((y) => {
-          const index = y * gridSize + x;
-          if (pixels[index * 4 + 3] > 80) borderColors.push({ r: pixels[index * 4], g: pixels[index * 4 + 1], b: pixels[index * 4 + 2] });
+      for (let x = 0; x < sourceWidth; x += 1) {
+        [0, sourceHeight - 1].forEach((y) => {
+          const index = y * sourceWidth + x;
+          if (sourcePixels[index * 4 + 3] > 80) {
+            borderColors.push({ r: sourcePixels[index * 4], g: sourcePixels[index * 4 + 1], b: sourcePixels[index * 4 + 2] });
+          }
         });
       }
-      for (let y = top; y <= bottom; y += 1) {
-        [left, right].forEach((x) => {
-          const index = y * gridSize + x;
-          if (pixels[index * 4 + 3] > 80) borderColors.push({ r: pixels[index * 4], g: pixels[index * 4 + 1], b: pixels[index * 4 + 2] });
+      for (let y = 0; y < sourceHeight; y += 1) {
+        [0, sourceWidth - 1].forEach((x) => {
+          const index = y * sourceWidth + x;
+          if (sourcePixels[index * 4 + 3] > 80) {
+            borderColors.push({ r: sourcePixels[index * 4], g: sourcePixels[index * 4 + 1], b: sourcePixels[index * 4 + 2] });
+          }
         });
       }
       const borderAverage = borderColors.reduce(
@@ -1015,20 +1016,136 @@ export default function Home() {
         && Math.min(borderAverage.r, borderAverage.g, borderAverage.b) > 232
         && borderRange < 28;
 
+      const samples: Rgb[] = [];
+      const sourceStep = Math.max(1, Math.ceil(Math.sqrt((sourceWidth * sourceHeight) / 120000)));
+      for (let y = 0; y < sourceHeight; y += sourceStep) {
+        for (let x = 0; x < sourceWidth; x += sourceStep) {
+          const index = y * sourceWidth + x;
+          if (sourcePixels[index * 4 + 3] > 80) {
+            samples.push(boostStitchColor({
+              r: sourcePixels[index * 4],
+              g: sourcePixels[index * 4 + 1],
+              b: sourcePixels[index * 4 + 2],
+            }));
+          }
+        }
+      }
+      const centers = createAdaptivePalette(samples, 22);
+      const nearestCenter = (color: Rgb) => {
+        let nearestIndex = 0;
+        let nearestDistance = Infinity;
+        centers.forEach((center, centerIndex) => {
+          const distance = colorDistance(color, center);
+          if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearestIndex = centerIndex;
+          }
+        });
+        return nearestIndex;
+      };
+      const luminance = (color: Rgb) => color.r * .299 + color.g * .587 + color.b * .114;
+      const saturation = (color: Rgb) =>
+        (Math.max(color.r, color.g, color.b) - Math.min(color.r, color.g, color.b)) / 255;
+
+      const gridScale = Math.min(gridSize / image.width, gridSize / image.height);
+      const width = image.width * gridScale;
+      const height = image.height * gridScale;
+      const offsetX = (gridSize - width) / 2;
+      const offsetY = (gridSize - height) / 2;
+      const gridChoice = new Int16Array(gridSize * gridSize);
+      gridChoice.fill(-1);
+
+      for (let gridY = 0; gridY < gridSize; gridY += 1) {
+        for (let gridX = 0; gridX < gridSize; gridX += 1) {
+          if (
+            gridX + 1 <= offsetX
+            || gridX >= offsetX + width
+            || gridY + 1 <= offsetY
+            || gridY >= offsetY + height
+          ) continue;
+
+          const sourceX0 = Math.max(0, Math.floor(((gridX - offsetX) / width) * sourceWidth));
+          const sourceX1 = Math.min(sourceWidth, Math.max(sourceX0 + 1, Math.ceil(((gridX + 1 - offsetX) / width) * sourceWidth)));
+          const sourceY0 = Math.max(0, Math.floor(((gridY - offsetY) / height) * sourceHeight));
+          const sourceY1 = Math.min(sourceHeight, Math.max(sourceY0 + 1, Math.ceil(((gridY + 1 - offsetY) / height) * sourceHeight)));
+          const sampleStep = Math.max(1, Math.floor(Math.max(sourceX1 - sourceX0, sourceY1 - sourceY0) / 8));
+          const counts = new Uint16Array(centers.length);
+          let total = 0;
+
+          for (let sourceY = sourceY0; sourceY < sourceY1; sourceY += sampleStep) {
+            for (let sourceX = sourceX0; sourceX < sourceX1; sourceX += sampleStep) {
+              const sourceIndex = sourceY * sourceWidth + sourceX;
+              if (sourcePixels[sourceIndex * 4 + 3] < 48) continue;
+              const centerIndex = nearestCenter(boostStitchColor({
+                r: sourcePixels[sourceIndex * 4],
+                g: sourcePixels[sourceIndex * 4 + 1],
+                b: sourcePixels[sourceIndex * 4 + 2],
+              }));
+              counts[centerIndex] += 1;
+              total += 1;
+            }
+          }
+          if (!total) continue;
+
+          let chosen = 0;
+          counts.forEach((count, index) => {
+            if (count > counts[chosen]) chosen = index;
+          });
+          const dominantLuminance = luminance(centers[chosen]);
+
+          // A line only occupies part of a grid cell. Keep real dark ink instead of
+          // averaging it into the pale fill around it.
+          let darkestCandidate = -1;
+          let darkestScore = -1;
+          counts.forEach((count, index) => {
+            const share = count / total;
+            const tone = luminance(centers[index]);
+            if (share >= .07 && tone < 92 && dominantLuminance - tone > 42) {
+              const score = share * 2 + (92 - tone) / 120;
+              if (score > darkestScore) {
+                darkestScore = score;
+                darkestCandidate = index;
+              }
+            }
+          });
+          if (darkestCandidate >= 0) {
+            chosen = darkestCandidate;
+          } else if (dominantLuminance > 205) {
+            // Preserve small saturated details such as a pink mouth on a white face.
+            let accentCandidate = -1;
+            let accentScore = -1;
+            counts.forEach((count, index) => {
+              const share = count / total;
+              const tone = luminance(centers[index]);
+              const chroma = saturation(centers[index]);
+              if (share >= .07 && tone < 210 && chroma > .16) {
+                const score = share * 2 + chroma * .7 + (210 - tone) / 420;
+                if (score > accentScore) {
+                  accentScore = score;
+                  accentCandidate = index;
+                }
+              }
+            });
+            if (accentCandidate >= 0) chosen = accentCandidate;
+          }
+          gridChoice[gridY * gridSize + gridX] = chosen;
+        }
+      }
+
+      const blank = new Uint8Array(gridSize * gridSize);
       for (let index = 0; index < blank.length; index += 1) {
-        if (pixels[index * 4 + 3] < 48) blank[index] = 1;
+        if (gridChoice[index] < 0) blank[index] = 1;
       }
 
       if (hasWhiteBackground) {
         const visited = new Uint8Array(gridSize * gridSize);
         const queue: number[] = [];
         const canFlood = (index: number) => {
-          const alpha = pixels[index * 4 + 3];
-          if (alpha < 48) return true;
-          const r = pixels[index * 4];
-          const g = pixels[index * 4 + 1];
-          const b = pixels[index * 4 + 2];
-          return Math.min(r, g, b) > 229 && Math.max(r, g, b) - Math.min(r, g, b) < 34;
+          const choice = gridChoice[index];
+          if (choice < 0) return true;
+          const color = centers[choice];
+          return Math.min(color.r, color.g, color.b) > 229
+            && Math.max(color.r, color.g, color.b) - Math.min(color.r, color.g, color.b) < 34;
         };
         const seed = (index: number) => {
           if (!visited[index] && canFlood(index)) {
@@ -1054,18 +1171,6 @@ export default function Home() {
         }
       }
 
-      const samples: Rgb[] = [];
-      for (let index = 0; index < gridSize * gridSize; index += 1) {
-        if (!blank[index]) {
-          samples.push(boostStitchColor({
-            r: pixels[index * 4],
-            g: pixels[index * 4 + 1],
-            b: pixels[index * 4 + 2],
-          }));
-        }
-      }
-      const targetColors = Math.min(30, Math.max(16, Math.round(Math.sqrt(samples.length) / 2)));
-      const centers = createAdaptivePalette(samples, targetColors);
       const customColors: ThreadColor[] = centers.map((center, index) => {
         const hex = toHex(center);
         return {
@@ -1080,26 +1185,13 @@ export default function Home() {
           nextGrid.push(-1);
           continue;
         }
-        const color = boostStitchColor({
-          r: pixels[index * 4],
-          g: pixels[index * 4 + 1],
-          b: pixels[index * 4 + 2],
-        });
-        let nearestIndex = 0;
-        let nearestDistance = Infinity;
-        centers.forEach((center, centerIndex) => {
-          const distance = colorDistance(color, center);
-          if (distance < nearestDistance) {
-            nearestDistance = distance;
-            nearestIndex = centerIndex;
-          }
-        });
-        nextGrid.push(nearestIndex);
+        nextGrid.push(gridChoice[index]);
       }
+      const usedColors = new Set(nextGrid.filter((value) => value >= 0)).size;
       const uploaded: Pattern = {
         id: `upload-${Date.now()}`,
         name: uploadFileName.replace(/\.[^.]+$/, "") || "我的图纸",
-        subtitle: `${gridSize} × ${gridSize} 针 · 原图自适应 ${customColors.length} 色`,
+        subtitle: `${gridSize} × ${gridSize} 针 · 原图主色优化 ${usedColors} 色`,
         difficulty: "进阶",
         size: gridSize,
         minutes: Math.round(nextGrid.filter((v) => v >= 0).length / 7),
@@ -1149,7 +1241,7 @@ export default function Home() {
               </div>
               <div className="trust-row">
                 <span><b>10</b> 款原创图纸</span><i />
-                <span><b>30</b> 色原图取色</span><i />
+                <span><b>主色</b> 智能提取</span><i />
                 <span><b>0</b> 基础也能开始</span>
               </div>
             </div>
@@ -1216,7 +1308,7 @@ export default function Home() {
               <div className="fidelity-card">
                 <p className="eyebrow">MAXIMUM FIDELITY</p>
                 <h2>自动高清还原</h2>
-                <p>不再限制真实线号，也不需要设置精细度。系统会用 64 × 64 高清网格和最多 30 种原图色自动转换。</p>
+                <p>不再限制真实线号，也不需要设置精细度。系统会用 64 × 64 高清网格识别原图主色，并特别保留黑色轮廓与细小彩色线条。</p>
               </div>
               <div className="conversion-feature"><span>▦</span><p><b>原图自适应配色</b><small>直接从图片提取主色、阴影和轮廓色。</small></p></div>
               <div className="conversion-feature"><span>○</span><p><b>识别内部白色</b><small>角色、衣服与图案内的白色会保留为白色针脚。</small></p></div>
