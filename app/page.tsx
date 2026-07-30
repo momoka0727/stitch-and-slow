@@ -16,6 +16,7 @@ type Pattern = {
   size: number;
   minutes: number;
   grid: number[];
+  colors?: ThreadColor[];
 };
 
 const THREADS: ThreadColor[] = [
@@ -144,6 +145,84 @@ const PATTERNS: Pattern[] = [
   { id: "whale", name: "深海小鲸", subtitle: "带着气泡去旅行", difficulty: "进阶", size: 24, minutes: 45, grid: makeGrid("whale") },
 ];
 
+type Rgb = { r: number; g: number; b: number };
+
+const toHex = ({ r, g, b }: Rgb) =>
+  `#${[r, g, b].map((value) => Math.round(value).toString(16).padStart(2, "0")).join("")}`.toUpperCase();
+
+const colorDistance = (a: Rgb, b: Rgb) =>
+  (a.r - b.r) ** 2 + (a.g - b.g) ** 2 + (a.b - b.b) ** 2;
+
+function createAdaptivePalette(samples: Rgb[], limit = 28) {
+  const buckets = new Map<number, { r: number; g: number; b: number; count: number }>();
+  samples.forEach(({ r, g, b }) => {
+    const key = (r >> 3) * 1024 + (g >> 3) * 32 + (b >> 3);
+    const bucket = buckets.get(key) || { r: 0, g: 0, b: 0, count: 0 };
+    bucket.r += r;
+    bucket.g += g;
+    bucket.b += b;
+    bucket.count += 1;
+    buckets.set(key, bucket);
+  });
+  const points = Array.from(buckets.values()).map((bucket) => ({
+    r: bucket.r / bucket.count,
+    g: bucket.g / bucket.count,
+    b: bucket.b / bucket.count,
+    count: bucket.count,
+  }));
+  points.sort((a, b) => b.count - a.count);
+  if (!points.length) return [{ r: 255, g: 255, b: 255 }];
+
+  const target = Math.min(limit, points.length);
+  const centers: Rgb[] = [{ r: points[0].r, g: points[0].g, b: points[0].b }];
+  while (centers.length < target) {
+    let best = points[0];
+    let bestScore = -1;
+    points.forEach((point) => {
+      const nearest = Math.min(...centers.map((center) => colorDistance(point, center)));
+      const score = nearest * Math.sqrt(point.count);
+      if (score > bestScore) {
+        bestScore = score;
+        best = point;
+      }
+    });
+    centers.push({ r: best.r, g: best.g, b: best.b });
+  }
+
+  for (let iteration = 0; iteration < 9; iteration += 1) {
+    const groups = centers.map(() => ({ r: 0, g: 0, b: 0, count: 0 }));
+    points.forEach((point) => {
+      let nearestIndex = 0;
+      let nearestDistance = Infinity;
+      centers.forEach((center, index) => {
+        const distance = colorDistance(point, center);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestIndex = index;
+        }
+      });
+      const group = groups[nearestIndex];
+      group.r += point.r * point.count;
+      group.g += point.g * point.count;
+      group.b += point.b * point.count;
+      group.count += point.count;
+    });
+    groups.forEach((group, index) => {
+      if (group.count) {
+        centers[index] = {
+          r: group.r / group.count,
+          g: group.g / group.count,
+          b: group.b / group.count,
+        };
+      }
+    });
+  }
+
+  return centers.filter((center, index) =>
+    centers.findIndex((other) => colorDistance(center, other) < 36) === index,
+  );
+}
+
 function CrossCanvas({
   pattern,
   compact = false,
@@ -173,6 +252,7 @@ function CrossCanvas({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const cell = display / pattern.size;
+    const threadSet = pattern.colors || THREADS;
     const chartPalette = Array.from(new Set(pattern.grid.filter((value) => value >= 0)));
 
     const shade = (hex: string, amount: number) => {
@@ -288,7 +368,7 @@ function CrossCanvas({
         const x = (index % pattern.size) * cell;
         const y = Math.floor(index / pattern.size) * cell;
         const isDone = compact || !stitched || stitched.has(index);
-        const color = THREADS[colorIndex];
+        const color = threadSet[colorIndex];
         if (!isDone) {
           if (!compact) {
             const chartNumber = chartPalette.indexOf(colorIndex) + 1;
@@ -331,7 +411,7 @@ function CrossCanvas({
         }
       });
       if (!compact && selectedColor !== undefined) {
-        ctx.strokeStyle = THREADS[selectedColor].hex;
+        ctx.strokeStyle = threadSet[selectedColor]?.hex || "#416453";
         ctx.lineWidth = 3;
         ctx.strokeRect(1.5, 1.5, display - 3, display - 3);
       }
@@ -435,8 +515,6 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [uploadPreview, setUploadPreview] = useState("");
   const [uploadFileName, setUploadFileName] = useState("");
-  const [gridSize, setGridSize] = useState(24);
-  const [colorCount, setColorCount] = useState(10);
   const [search, setSearch] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -449,6 +527,7 @@ export default function Home() {
   const patternCells = useMemo(() => pattern.grid.map((v, i) => (v >= 0 ? i : -1)).filter((v) => v >= 0), [pattern]);
   const progress = patternCells.length ? Math.round((stitched.size / patternCells.length) * 100) : 0;
   const palette = useMemo(() => Array.from(new Set(pattern.grid.filter((v) => v >= 0))), [pattern]);
+  const activeThreads = pattern.colors || THREADS;
   const filteredPatterns = PATTERNS.filter((item) => `${item.name}${item.subtitle}`.includes(search));
 
   const applySavedProgress = (row: { patternJson: string; stitchedJson: string; updatedAt: number } | null, fallback?: Pattern) => {
@@ -535,7 +614,10 @@ export default function Home() {
     const target = pattern.grid[index];
     if (target < 0 || stitched.has(index)) return;
     if (target !== selectedColor) {
-      showToast(`这里需要 DMC ${THREADS[target].code} · ${THREADS[target].name}`);
+      const needed = activeThreads[target];
+      showToast(pattern.colors
+        ? `这里需要图纸编号 ${palette.indexOf(target) + 1} · ${needed.name}`
+        : `这里需要 DMC ${needed.code} · ${needed.name}`);
       return;
     }
     setStitched((current) => new Set(current).add(index));
@@ -605,47 +687,145 @@ export default function Home() {
     }
     const image = new Image();
     image.onload = () => {
+      const gridSize = 64;
       const canvas = document.createElement("canvas");
       canvas.width = gridSize;
       canvas.height = gridSize;
       const ctx = canvas.getContext("2d", { willReadFrequently: true });
       if (!ctx) return;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, gridSize, gridSize);
-      const scale = Math.max(gridSize / image.width, gridSize / image.height);
+      ctx.clearRect(0, 0, gridSize, gridSize);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      const scale = Math.min(gridSize / image.width, gridSize / image.height);
       const width = image.width * scale;
       const height = image.height * scale;
-      ctx.drawImage(image, (gridSize - width) / 2, (gridSize - height) / 2, width, height);
+      const offsetX = (gridSize - width) / 2;
+      const offsetY = (gridSize - height) / 2;
+      ctx.drawImage(image, offsetX, offsetY, width, height);
       const pixels = ctx.getImageData(0, 0, gridSize, gridSize).data;
-      const balancedPalette = [0, 1, 17, 16, 3, 4, 5, 7, 9, 10, 11, 13, 14, 8];
-      const available = balancedPalette.slice(0, colorCount);
+
+      const blank = new Uint8Array(gridSize * gridSize);
+      const borderColors: Rgb[] = [];
+      const left = Math.max(0, Math.floor(offsetX));
+      const right = Math.min(gridSize - 1, Math.ceil(offsetX + width) - 1);
+      const top = Math.max(0, Math.floor(offsetY));
+      const bottom = Math.min(gridSize - 1, Math.ceil(offsetY + height) - 1);
+      for (let x = left; x <= right; x += 1) {
+        [top, bottom].forEach((y) => {
+          const index = y * gridSize + x;
+          if (pixels[index * 4 + 3] > 80) borderColors.push({ r: pixels[index * 4], g: pixels[index * 4 + 1], b: pixels[index * 4 + 2] });
+        });
+      }
+      for (let y = top; y <= bottom; y += 1) {
+        [left, right].forEach((x) => {
+          const index = y * gridSize + x;
+          if (pixels[index * 4 + 3] > 80) borderColors.push({ r: pixels[index * 4], g: pixels[index * 4 + 1], b: pixels[index * 4 + 2] });
+        });
+      }
+      const borderAverage = borderColors.reduce(
+        (sum, color) => ({ r: sum.r + color.r, g: sum.g + color.g, b: sum.b + color.b }),
+        { r: 0, g: 0, b: 0 },
+      );
+      if (borderColors.length) {
+        borderAverage.r /= borderColors.length;
+        borderAverage.g /= borderColors.length;
+        borderAverage.b /= borderColors.length;
+      }
+      const borderRange = Math.max(borderAverage.r, borderAverage.g, borderAverage.b) - Math.min(borderAverage.r, borderAverage.g, borderAverage.b);
+      const hasWhiteBackground = borderColors.length > 0
+        && Math.min(borderAverage.r, borderAverage.g, borderAverage.b) > 232
+        && borderRange < 28;
+
+      for (let index = 0; index < blank.length; index += 1) {
+        if (pixels[index * 4 + 3] < 48) blank[index] = 1;
+      }
+
+      if (hasWhiteBackground) {
+        const visited = new Uint8Array(gridSize * gridSize);
+        const queue: number[] = [];
+        const canFlood = (index: number) => {
+          const alpha = pixels[index * 4 + 3];
+          if (alpha < 48) return true;
+          const r = pixels[index * 4];
+          const g = pixels[index * 4 + 1];
+          const b = pixels[index * 4 + 2];
+          return Math.min(r, g, b) > 229 && Math.max(r, g, b) - Math.min(r, g, b) < 34;
+        };
+        const seed = (index: number) => {
+          if (!visited[index] && canFlood(index)) {
+            visited[index] = 1;
+            queue.push(index);
+          }
+        };
+        for (let i = 0; i < gridSize; i += 1) {
+          seed(i);
+          seed((gridSize - 1) * gridSize + i);
+          seed(i * gridSize);
+          seed(i * gridSize + gridSize - 1);
+        }
+        for (let cursor = 0; cursor < queue.length; cursor += 1) {
+          const index = queue[cursor];
+          blank[index] = 1;
+          const x = index % gridSize;
+          const y = Math.floor(index / gridSize);
+          if (x > 0) seed(index - 1);
+          if (x < gridSize - 1) seed(index + 1);
+          if (y > 0) seed(index - gridSize);
+          if (y < gridSize - 1) seed(index + gridSize);
+        }
+      }
+
+      const samples: Rgb[] = [];
+      for (let index = 0; index < gridSize * gridSize; index += 1) {
+        if (!blank[index]) {
+          samples.push({
+            r: pixels[index * 4],
+            g: pixels[index * 4 + 1],
+            b: pixels[index * 4 + 2],
+          });
+        }
+      }
+      const targetColors = Math.min(30, Math.max(16, Math.round(Math.sqrt(samples.length) / 2)));
+      const centers = createAdaptivePalette(samples, targetColors);
+      const customColors: ThreadColor[] = centers.map((center, index) => {
+        const hex = toHex(center);
+        return {
+          code: `IMG${String(index + 1).padStart(2, "0")}`,
+          name: `原图色 ${hex}`,
+          hex,
+        };
+      });
       const nextGrid: number[] = [];
-      for (let i = 0; i < pixels.length; i += 4) {
-        const [r, g, b, a] = [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]];
-        if (a < 80 || (r > 244 && g > 244 && b > 244)) {
+      for (let index = 0; index < gridSize * gridSize; index += 1) {
+        if (blank[index]) {
           nextGrid.push(-1);
           continue;
         }
-        let best = available[0];
-        let distance = Infinity;
-        available.forEach((threadIndex) => {
-          const rgb = THREADS[threadIndex].hex.match(/\w\w/g)!.map((v) => parseInt(v, 16));
-          const nextDistance = (r - rgb[0]) ** 2 + (g - rgb[1]) ** 2 + (b - rgb[2]) ** 2;
-          if (nextDistance < distance) {
-            distance = nextDistance;
-            best = threadIndex;
+        const color = {
+          r: pixels[index * 4],
+          g: pixels[index * 4 + 1],
+          b: pixels[index * 4 + 2],
+        };
+        let nearestIndex = 0;
+        let nearestDistance = Infinity;
+        centers.forEach((center, centerIndex) => {
+          const distance = colorDistance(color, center);
+          if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearestIndex = centerIndex;
           }
         });
-        nextGrid.push(best);
+        nextGrid.push(nearestIndex);
       }
       const uploaded: Pattern = {
         id: `upload-${Date.now()}`,
         name: uploadFileName.replace(/\.[^.]+$/, "") || "我的图纸",
-        subtitle: `${gridSize} × ${gridSize} 针 · 自动匹配 DMC`,
-        difficulty: gridSize <= 20 ? "入门" : gridSize <= 28 ? "轻松" : "进阶",
+        subtitle: `${gridSize} × ${gridSize} 针 · 原图自适应 ${customColors.length} 色`,
+        difficulty: "进阶",
         size: gridSize,
         minutes: Math.round(nextGrid.filter((v) => v >= 0).length / 7),
         grid: nextGrid,
+        colors: customColors,
       };
       openPattern(uploaded);
     };
@@ -683,14 +863,14 @@ export default function Home() {
             <div className="hero-copy">
               <p className="eyebrow">DIGITAL CROSS STITCH STUDIO</p>
               <h1>把喜欢的画面，<br />一针一针<span>留下来。</span></h1>
-              <p className="hero-lead">上传一张照片，自动变成清晰的十字绣图纸。我们会匹配准确的 DMC 线号，让你只管享受慢下来的过程。</p>
+              <p className="hero-lead">上传一张照片，自动变成高清十字绣图纸。图片转换会直接提取原图颜色、保留轮廓内的白色；现成图纸则继续提供准确的 DMC 线号。</p>
               <div className="hero-actions">
                 <button className="primary" onClick={() => requireUser("upload")}>上传图片制作 <span>→</span></button>
                 <button className="secondary" onClick={() => requireUser("gallery")}>浏览现成图纸</button>
               </div>
               <div className="trust-row">
                 <span><b>10</b> 款原创图纸</span><i />
-                <span><b>18</b> 色 DMC 线库</span><i />
+                <span><b>30</b> 色原图取色</span><i />
                 <span><b>0</b> 基础也能开始</span>
               </div>
             </div>
@@ -709,7 +889,7 @@ export default function Home() {
             <div className="section-heading"><p className="eyebrow">HOW IT WORKS</p><h2>三步，开始你的第一幅作品</h2></div>
             <div className="steps">
               <article><span>01</span><i>↑</i><h3>选择一张图片</h3><p>上传自己的照片，或从原创图纸库里挑一张。</p></article>
-              <article><span>02</span><i>▦</i><h3>生成图纸与配线</h3><p>自动简化色彩、生成网格，并匹配 DMC 线号。</p></article>
+              <article><span>02</span><i>▦</i><h3>生成图纸与配线</h3><p>用高清网格提取原图颜色，并智能识别背景与内部白色。</p></article>
               <article><span>03</span><i>×</i><h3>跟着颜色落针</h3><p>选择对应线色逐格完成，选错线时会及时提醒。</p></article>
             </div>
           </section>
@@ -754,9 +934,14 @@ export default function Home() {
               {uploadPreview && <span className="replace-image">更换图片</span>}
             </div>
             <aside className="conversion-settings">
-              <div><p className="setting-label"><b>图纸尺寸</b><span>{gridSize} × {gridSize} 针</span></p><input type="range" min="16" max="32" step="4" value={gridSize} onChange={(e) => setGridSize(Number(e.target.value))} /><div className="range-labels"><span>更简单</span><span>更细致</span></div></div>
-              <div><p className="setting-label"><b>颜色数量</b><span>{colorCount} 色</span></p><input type="range" min="6" max="14" step="2" value={colorCount} onChange={(e) => setColorCount(Number(e.target.value))} /><div className="range-labels"><span>更清爽</span><span>更还原</span></div></div>
-              <div className="preview-palette"><b>将从 DMC 线库智能匹配</b><span>{THREADS.slice(2, 10).map((thread) => <i key={thread.code} style={{ background: thread.hex }} />)}</span><small>完成后会生成可核对的采购清单</small></div>
+              <div className="fidelity-card">
+                <p className="eyebrow">MAXIMUM FIDELITY</p>
+                <h2>自动高清还原</h2>
+                <p>不再限制真实线号，也不需要设置精细度。系统会用 64 × 64 高清网格和最多 30 种原图色自动转换。</p>
+              </div>
+              <div className="conversion-feature"><span>▦</span><p><b>原图自适应配色</b><small>直接从图片提取主色、阴影和轮廓色。</small></p></div>
+              <div className="conversion-feature"><span>○</span><p><b>识别内部白色</b><small>角色、衣服与图案内的白色会保留为白色针脚。</small></p></div>
+              <div className="conversion-feature"><span>◩</span><p><b>智能判断背景</b><small>纯白外部背景留空；彩色背景完整生成针脚。</small></p></div>
               <button className="primary wide" onClick={convertUpload}>{uploadPreview ? "生成十字绣图纸" : "先选择一张图片"} <span>→</span></button>
             </aside>
           </div>
@@ -813,24 +998,27 @@ export default function Home() {
                   const done = pattern.grid.filter((c, index) => c === colorIndex && stitched.has(index)).length;
                   return (
                     <button key={colorIndex} className={selectedColor === colorIndex ? "selected" : ""} onClick={() => setSelectedColor(colorIndex)}>
-                      <span className="floss-bundle" style={{ "--floss": THREADS[colorIndex].hex } as React.CSSProperties}>
+                      <span className="floss-bundle" style={{ "--floss": activeThreads[colorIndex].hex } as React.CSSProperties}>
                         <i /><i /><i /><i /><i /><i /><i />
                         <em>{paletteIndex + 1}</em>
                         <strong />
                       </span>
-                      <span className="thread-copy"><b>DMC {THREADS[colorIndex].code}</b><small>图纸编号 {paletteIndex + 1} · {THREADS[colorIndex].name}</small></span>
+                      <span className="thread-copy">
+                        <b>{pattern.colors ? `图色 ${paletteIndex + 1}` : `DMC ${activeThreads[colorIndex].code}`}</b>
+                        <small>图纸编号 {paletteIndex + 1} · {activeThreads[colorIndex].name}</small>
+                      </span>
                       <span className="remaining">{done === total ? "完成" : `余 ${total - done}`}</span>
                     </button>
                   );
                 })}
               </div>
-              <div className="shopping-note"><span>✓</span><p><b>配线已核对</b><small>以上线号与图纸一一对应，购买时按 DMC 编号选择即可。</small></p></div>
+              <div className="shopping-note"><span>✓</span><p><b>{pattern.colors ? "原图配色已提取" : "配线已核对"}</b><small>{pattern.colors ? "本图不受 DMC 色库限制，请按屏幕色卡挑选最接近的线。" : "以上线号与图纸一一对应，购买时按 DMC 编号选择即可。"}</small></p></div>
             </aside>
           </div>
         </section>
       )}
 
-      <footer><div className="brand footer-brand"><span className="brand-mark"><i>×</i><i>×</i><i>×</i><i>×</i></span><span><b>针迹小屋</b><small>STITCH &amp; SLOW</small></span></div><p>把快生活，绣得慢一点。</p><span>原创练习图纸 · DMC 配色参考</span></footer>
+      <footer><div className="brand footer-brand"><span className="brand-mark"><i>×</i><i>×</i><i>×</i><i>×</i></span><span><b>针迹小屋</b><small>STITCH &amp; SLOW</small></span></div><p>把快生活，绣得慢一点。</p><span>高清图片转换 · 原创练习图纸</span></footer>
 
       {authOpen && <AuthModal onClose={() => setAuthOpen(false)} onSuccess={(email) => {
         setUser(email);
