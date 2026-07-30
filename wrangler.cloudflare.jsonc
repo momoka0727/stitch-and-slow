@@ -1,0 +1,15 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "stitch-and-slow",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-07-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "stitch-and-slow-db",
+      "database_id": "a4399cde-c60d-4279-b3d0-51a3be6f4591",
+      "migrations_dir": "drizzle"
+    }
+  ]
+}
