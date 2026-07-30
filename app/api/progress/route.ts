@@ -12,13 +12,21 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     const userEmail = cleanEmail(url.searchParams.get("user"));
     const patternId = (url.searchParams.get("pattern") || "").slice(0, 120);
+    const includeAll = url.searchParams.get("all") === "1";
 
     if (!userEmail) {
       return Response.json({ error: "user is required" }, { status: 400 });
     }
 
     const db = getDb();
-    const rows = patternId
+    const rows = includeAll
+      ? await db
+          .select()
+          .from(stitchProgress)
+          .where(eq(stitchProgress.userEmail, userEmail))
+          .orderBy(desc(stitchProgress.updatedAt))
+          .limit(50)
+      : patternId
       ? await db
           .select()
           .from(stitchProgress)
@@ -36,7 +44,9 @@ export async function GET(request: Request) {
           .orderBy(desc(stitchProgress.updatedAt))
           .limit(1);
 
-    return Response.json({ progress: rows[0] || null });
+    return includeAll
+      ? Response.json({ progresses: rows })
+      : Response.json({ progress: rows[0] || null });
   } catch (error) {
     const message = error instanceof Error ? error.message : "保存服务暂时不可用";
     return Response.json({ error: message }, { status: 500 });

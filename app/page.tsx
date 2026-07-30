@@ -19,6 +19,14 @@ type Pattern = {
   colors?: ThreadColor[];
 };
 
+type SavedProjectRow = {
+  id: string;
+  patternId: string;
+  patternJson: string;
+  stitchedJson: string;
+  updatedAt: number;
+};
+
 const THREADS: ThreadColor[] = [
   { code: "B5200", name: "雪白", hex: "#F8F5EA" },
   { code: "310", name: "墨黑", hex: "#252322" },
@@ -223,6 +231,25 @@ function createAdaptivePalette(samples: Rgb[], limit = 28) {
   );
 }
 
+function boostStitchColor(color: Rgb): Rgb {
+  const max = Math.max(color.r, color.g, color.b);
+  const min = Math.min(color.r, color.g, color.b);
+  const luminance = color.r * .299 + color.g * .587 + color.b * .114;
+  if (luminance < 150 && max - min < 46) {
+    const scale = luminance < 75 ? .2 : .34;
+    return { r: color.r * scale, g: color.g * scale, b: color.b * scale };
+  }
+  const average = (color.r + color.g + color.b) / 3;
+  const saturate = (value: number) => average + (value - average) * 1.12;
+  const contrast = (value: number) => 128 + (value - 128) * 1.08;
+  const clamp = (value: number) => Math.max(0, Math.min(255, value));
+  return {
+    r: clamp(contrast(saturate(color.r))),
+    g: clamp(contrast(saturate(color.g))),
+    b: clamp(contrast(saturate(color.b))),
+  };
+}
+
 function CrossCanvas({
   pattern,
   compact = false,
@@ -230,6 +257,7 @@ function CrossCanvas({
   selectedColor,
   animatedIndex,
   animationNonce,
+  highlightFlash = false,
   onStitch,
 }: {
   pattern: Pattern;
@@ -238,6 +266,7 @@ function CrossCanvas({
   selectedColor?: number;
   animatedIndex?: number | null;
   animationNonce?: number;
+  highlightFlash?: boolean;
   onStitch?: (index: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -374,10 +403,10 @@ function CrossCanvas({
             const chartNumber = chartPalette.indexOf(colorIndex) + 1;
             const isCurrentColor = selectedColor === colorIndex;
             if (isCurrentColor) {
-              ctx.fillStyle = `${color.hex}1F`;
+              ctx.fillStyle = `${color.hex}${highlightFlash ? "52" : "1F"}`;
               ctx.fillRect(x + 1, y + 1, cell - 2, cell - 2);
-              ctx.strokeStyle = `${color.hex}66`;
-              ctx.lineWidth = 1.2;
+              ctx.strokeStyle = highlightFlash ? "#B9533F" : `${color.hex}66`;
+              ctx.lineWidth = highlightFlash ? 2.1 : 1.2;
               ctx.strokeRect(x + 2, y + 2, cell - 4, cell - 4);
             }
             ctx.fillStyle = isCurrentColor ? shade(color.hex, -28) : "rgba(78, 83, 77, .26)";
@@ -434,7 +463,7 @@ function CrossCanvas({
     };
     frame = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(frame);
-  }, [pattern, compact, stitched, selectedColor, animatedIndex, animationNonce, display]);
+  }, [pattern, compact, stitched, selectedColor, animatedIndex, animationNonce, highlightFlash, display]);
 
   const handlePointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (!onStitch) return;
@@ -500,11 +529,67 @@ function AuthModal({
   );
 }
 
+function ShareModal({
+  patternName,
+  phase,
+  onClose,
+  onSend,
+}: {
+  patternName: string;
+  phase: "form" | "sending" | "sent";
+  onClose: () => void;
+  onSend: (senderName: string, recipientEmail: string) => void;
+}) {
+  const [error, setError] = useState("");
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const senderName = String(data.get("senderName") || "").trim();
+    const recipientEmail = String(data.get("recipientEmail") || "").trim();
+    if (!senderName || !recipientEmail.includes("@")) {
+      setError("请填写你的姓名和朋友的有效邮箱。");
+      return;
+    }
+    onSend(senderName, recipientEmail);
+  };
+
+  return (
+    <div className="modal-backdrop share-backdrop" role="presentation" onMouseDown={phase === "form" ? onClose : undefined}>
+      <section className="share-modal" role="dialog" aria-modal="true" aria-label="分享完成作品" onMouseDown={(event) => event.stopPropagation()}>
+        {phase === "form" ? (
+          <>
+            <button className="modal-close" onClick={onClose} aria-label="关闭">×</button>
+            <p className="eyebrow">SEND A STITCHED LETTER</p>
+            <h2>把作品寄给朋友</h2>
+            <p>发送后会打开你的邮件应用，并自动填好收件人、标题与作品链接。</p>
+            <form onSubmit={submit}>
+              <label>朋友的邮箱<input type="email" name="recipientEmail" placeholder="friend@example.com" autoFocus /></label>
+              <label>你的姓名<input type="text" name="senderName" placeholder="邮件会显示“来自你的姓名的邮件”" maxLength={60} /></label>
+              {error && <p className="form-error">{error}</p>}
+              <button className="primary wide" type="submit">放进信封并发送 <span>→</span></button>
+            </form>
+          </>
+        ) : (
+          <div className={`envelope-scene ${phase}`}>
+            <p className="eyebrow">{phase === "sending" ? "PACKING YOUR STITCHES" : "READY TO SEND"}</p>
+            <h2>{phase === "sending" ? "正在把作品放进信封…" : "信封已经准备好"}</h2>
+            <div className="letter-stack">
+              <div className="stitched-letter"><span>× × ×</span><b>{patternName}</b></div>
+              <div className="envelope"><i /><b>✦</b></div>
+            </div>
+            {phase === "sent" && <button className="secondary" onClick={onClose}>完成</button>}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
 export default function Home() {
   const [user, setUser] = useState("");
   const [authOpen, setAuthOpen] = useState(false);
-  const [pendingAction, setPendingAction] = useState<"upload" | "gallery" | "studio">("studio");
-  const [view, setView] = useState<"home" | "gallery" | "upload" | "studio">("home");
+  const [pendingAction, setPendingAction] = useState<"upload" | "gallery" | "studio" | "projects">("projects");
+  const [view, setView] = useState<"home" | "gallery" | "upload" | "studio" | "projects">("home");
   const [pattern, setPattern] = useState<Pattern>(PATTERNS[0]);
   const [selectedColor, setSelectedColor] = useState(16);
   const [stitched, setStitched] = useState<Set<number>>(() => new Set());
@@ -512,16 +597,41 @@ export default function Home() {
   const [animationNonce, setAnimationNonce] = useState(0);
   const [saveStatus, setSaveStatus] = useState<"idle" | "dirty" | "saving" | "saved" | "error">("idle");
   const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
+  const [projects, setProjects] = useState<SavedProjectRow[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [celebrationOpen, setCelebrationOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [sharePhase, setSharePhase] = useState<"form" | "sending" | "sent">("form");
+  const [highlightFlash, setHighlightFlash] = useState(false);
+  const [sharedFrom, setSharedFrom] = useState("");
   const [toast, setToast] = useState("");
   const [uploadPreview, setUploadPreview] = useState("");
   const [uploadFileName, setUploadFileName] = useState("");
   const [search, setSearch] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem("stitch-user");
     if (saved) setUser(saved);
+    const shareId = new URLSearchParams(window.location.search).get("share");
+    if (shareId) {
+      void fetch(`/api/share?id=${encodeURIComponent(shareId)}`)
+        .then((response) => response.json())
+        .then((data: { share?: { senderName: string; patternJson: string } | null }) => {
+          if (!data.share) return;
+          const sharedPattern = JSON.parse(data.share.patternJson) as Pattern;
+          setPattern(sharedPattern);
+          setSelectedColor(Array.from(new Set(sharedPattern.grid.filter((value) => value >= 0)))[0] || 0);
+          setStitched(new Set(sharedPattern.grid.map((value, index) => value >= 0 ? index : -1).filter((index) => index >= 0)));
+          setSharedFrom(data.share.senderName);
+          setSaveStatus("saved");
+          setView("studio");
+        })
+        .catch(() => setToast("这个分享链接暂时无法打开"));
+    }
   }, []);
 
   const patternCells = useMemo(() => pattern.grid.map((v, i) => (v >= 0 ? i : -1)).filter((v) => v >= 0), [pattern]);
@@ -584,10 +694,37 @@ export default function Home() {
     }
   };
 
-  const requireUser = (action: "upload" | "gallery" | "studio") => {
+  const loadProjects = async (email = user) => {
+    if (!email) return;
+    setProjectsLoading(true);
+    try {
+      const params = new URLSearchParams({ user: email, all: "1" });
+      const response = await fetch(`/api/progress?${params}`);
+      if (!response.ok) throw new Error("load failed");
+      const data = await response.json() as { progresses: SavedProjectRow[] };
+      setProjects(data.progresses);
+    } catch {
+      showToast("作品库暂时无法载入");
+    } finally {
+      setProjectsLoading(false);
+    }
+  };
+
+  const openSavedProject = (row: SavedProjectRow) => {
+    if (applySavedProgress(row)) {
+      setSharedFrom("");
+      setView("studio");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
+
+  const requireUser = (action: "upload" | "gallery" | "studio" | "projects") => {
     if (user) {
       if (action === "studio") void resumeLatest();
-      else setView(action);
+      else if (action === "projects") {
+        setView("projects");
+        void loadProjects();
+      } else setView(action);
     } else {
       setPendingAction(action);
       setAuthOpen(true);
@@ -600,6 +737,8 @@ export default function Home() {
     setStitched(new Set());
     setSaveStatus("idle");
     setLastSavedAt(null);
+    setSharedFrom("");
+    setCelebrationOpen(false);
     setView("studio");
     void loadSavedProgress(next);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -620,12 +759,24 @@ export default function Home() {
         : `这里需要 DMC ${needed.code} · ${needed.name}`);
       return;
     }
+    const completesPattern = stitched.size + 1 === patternCells.length;
     setStitched((current) => new Set(current).add(index));
     setSaveStatus("dirty");
     setAnimatedIndex(index);
     setAnimationNonce((current) => current + 1);
     if (animationTimerRef.current) clearTimeout(animationTimerRef.current);
     animationTimerRef.current = setTimeout(() => setAnimatedIndex(null), 680);
+    if (completesPattern) {
+      window.setTimeout(() => setCelebrationOpen(true), 720);
+    }
+  };
+
+  const selectThread = (colorIndex: number) => {
+    setSelectedColor(colorIndex);
+    setHighlightFlash(false);
+    window.requestAnimationFrame(() => setHighlightFlash(true));
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = setTimeout(() => setHighlightFlash(false), 1250);
   };
 
   const undo = () => {
@@ -642,8 +793,8 @@ export default function Home() {
     setAnimatedIndex(null);
   };
 
-  const saveProgress = async () => {
-    if (!user || saveStatus === "saving") return;
+  const persistProgress = async (silent = false) => {
+    if (!user || saveStatus === "saving" || sharedFrom) return;
     setSaveStatus("saving");
     try {
       const response = await fetch("/api/progress", {
@@ -660,10 +811,128 @@ export default function Home() {
       const result = await response.json() as { savedAt: number };
       setLastSavedAt(result.savedAt);
       setSaveStatus("saved");
-      showToast("当前进度已保存");
+      if (!silent) showToast("当前进度已保存");
     } catch {
       setSaveStatus("error");
-      showToast("保存失败，请稍后再试");
+      if (!silent) showToast("保存失败，请稍后再试");
+    }
+  };
+
+  const saveProgress = () => void persistProgress(false);
+
+  useEffect(() => {
+    if (saveStatus !== "dirty" || !user || view !== "studio" || sharedFrom) return;
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => void persistProgress(true), 1300);
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    };
+  }, [saveStatus, stitched, pattern, user, view, sharedFrom]);
+
+  const renamePattern = (name: string) => {
+    setPattern((current) => ({ ...current, name: name.slice(0, 80) }));
+    setSaveStatus("dirty");
+  };
+
+  const downloadFinished = (background: "transparent" | "white") => {
+    if (progress < 100) {
+      showToast("完成 100% 后即可保存成品图片");
+      return;
+    }
+    const cell = 18;
+    const canvas = document.createElement("canvas");
+    canvas.width = pattern.size * cell;
+    canvas.height = pattern.size * cell;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    if (background === "white") {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } else {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+    const shade = (hex: string) => {
+      const rgb = hex.match(/\w\w/g)?.map((part) => parseInt(part, 16)) || [60, 60, 60];
+      return `rgb(${rgb.map((value) => Math.max(0, value - 46)).join(",")})`;
+    };
+    pattern.grid.forEach((colorIndex, index) => {
+      if (colorIndex < 0) return;
+      const x = (index % pattern.size) * cell;
+      const y = Math.floor(index / pattern.size) * cell;
+      const color = activeThreads[colorIndex]?.hex || "#333333";
+      const lines = [
+        [x + 4, y + 4, x + 14, y + 14],
+        [x + 14, y + 4, x + 4, y + 14],
+      ];
+      lines.forEach(([x1, y1, x2, y2]) => {
+        ctx.save();
+        ctx.lineCap = "round";
+        ctx.shadowColor = "rgba(30,20,12,.38)";
+        ctx.shadowBlur = 2.2;
+        ctx.shadowOffsetY = 1.5;
+        ctx.strokeStyle = shade(color);
+        ctx.lineWidth = 6.2;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+        ctx.shadowColor = "transparent";
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 4.5;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+        ctx.strokeStyle = "rgba(255,255,255,.38)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x1 + .7, y1 - .7);
+        ctx.lineTo(x2 + .7, y2 - .7);
+        ctx.stroke();
+        ctx.restore();
+      });
+    });
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${pattern.name || "十字绣"}-${background === "white" ? "白底" : "透明底"}.png`;
+      link.click();
+      URL.revokeObjectURL(url);
+      showToast(`已保存${background === "white" ? "白底" : "透明底"}成品图`);
+    }, "image/png");
+  };
+
+  const openShare = () => {
+    if (progress < 100) {
+      showToast("完成 100% 后即可分享作品");
+      return;
+    }
+    setSharePhase("form");
+    setShareOpen(true);
+  };
+
+  const sendShare = async (senderName: string, recipientEmail: string) => {
+    setSharePhase("sending");
+    try {
+      const response = await fetch("/api/share", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ senderName, recipientEmail, pattern }),
+      });
+      if (!response.ok) throw new Error("share failed");
+      const result = await response.json() as { id: string };
+      const shareUrl = `${window.location.origin}/?share=${encodeURIComponent(result.id)}`;
+      const subject = `来自${senderName}的邮件`;
+      const body = `${senderName}送给你一幅已经完成的十字绣《${pattern.name}》。\n\n打开作品：${shareUrl}`;
+      window.setTimeout(() => {
+        setSharePhase("sent");
+        window.location.href = `mailto:${encodeURIComponent(recipientEmail)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      }, 1500);
+    } catch {
+      setSharePhase("form");
+      showToast("分享链接创建失败，请稍后再试");
     }
   };
 
@@ -778,11 +1047,11 @@ export default function Home() {
       const samples: Rgb[] = [];
       for (let index = 0; index < gridSize * gridSize; index += 1) {
         if (!blank[index]) {
-          samples.push({
+          samples.push(boostStitchColor({
             r: pixels[index * 4],
             g: pixels[index * 4 + 1],
             b: pixels[index * 4 + 2],
-          });
+          }));
         }
       }
       const targetColors = Math.min(30, Math.max(16, Math.round(Math.sqrt(samples.length) / 2)));
@@ -801,11 +1070,11 @@ export default function Home() {
           nextGrid.push(-1);
           continue;
         }
-        const color = {
+        const color = boostStitchColor({
           r: pixels[index * 4],
           g: pixels[index * 4 + 1],
           b: pixels[index * 4 + 2],
-        };
+        });
         let nearestIndex = 0;
         let nearestDistance = Infinity;
         centers.forEach((center, centerIndex) => {
@@ -848,7 +1117,7 @@ export default function Home() {
         <nav aria-label="主导航">
           <button className={view === "gallery" ? "active" : ""} onClick={() => requireUser("gallery")}>图纸库</button>
           <button className={view === "upload" ? "active" : ""} onClick={() => requireUser("upload")}>图片转图纸</button>
-          <button className={view === "studio" ? "active" : ""} onClick={() => requireUser("studio")}>我的绣框</button>
+          <button className={view === "projects" || view === "studio" ? "active" : ""} onClick={() => requireUser("projects")}>我的绣框</button>
         </nav>
         {user ? (
           <div className="user-menu"><span>{user.slice(0, 1).toUpperCase()}</span><button onClick={signOut}>退出</button></div>
@@ -949,21 +1218,72 @@ export default function Home() {
         </section>
       )}
 
+      {view === "projects" && (
+        <section className="page-shell projects-page">
+          <div className="projects-heading">
+            <div><p className="eyebrow">MY STITCHING SHELF</p><h1>我的绣框</h1><p>开始落下第一针后，作品会自动保存在这里。</p></div>
+            <div><button className="secondary" onClick={() => setView("gallery")}>挑选新图纸</button><button className="primary" onClick={() => setView("upload")}>上传图片 <span>→</span></button></div>
+          </div>
+          {projectsLoading ? (
+            <div className="projects-empty"><span>⌛</span><h2>正在整理你的作品…</h2></div>
+          ) : projects.length ? (
+            <div className="projects-grid">
+              {projects.map((row) => {
+                try {
+                  const savedPattern = JSON.parse(row.patternJson) as Pattern;
+                  const savedStitches = JSON.parse(row.stitchedJson) as number[];
+                  const total = savedPattern.grid.filter((value) => value >= 0).length;
+                  const percent = total ? Math.round((savedStitches.length / total) * 100) : 0;
+                  return (
+                    <article className="project-card" key={row.id}>
+                      <button className="project-preview" onClick={() => openSavedProject(row)}>
+                        <CrossCanvas pattern={savedPattern} compact />
+                        <span className={percent === 100 ? "complete" : ""}>{percent === 100 ? "已完成" : `${percent}%`}</span>
+                      </button>
+                      <div className="project-card-copy">
+                        <h2>{savedPattern.name}</h2>
+                        <p>{savedPattern.size} × {savedPattern.size} 针 · {Array.from(new Set(savedPattern.grid.filter((value) => value >= 0))).length} 色</p>
+                        <div className="project-progress"><i style={{ width: `${percent}%` }} /></div>
+                        <small>上次保存 {new Date(row.updatedAt).toLocaleDateString("zh-CN")}</small>
+                        <button onClick={() => openSavedProject(row)}>{percent === 100 ? "查看成品" : "继续绣"} →</button>
+                      </div>
+                    </article>
+                  );
+                } catch {
+                  return null;
+                }
+              })}
+            </div>
+          ) : (
+            <div className="projects-empty"><span>×</span><h2>这里还没有作品</h2><p>从图纸库选择一幅，或上传自己的图片，落下第一针后就会自动保存。</p><button className="primary" onClick={() => setView("gallery")}>开始第一幅作品 <span>→</span></button></div>
+          )}
+        </section>
+      )}
+
       {view === "studio" && (
         <section className="studio-page">
           <div className="studio-topbar">
-            <button className="back-link" onClick={() => setView("gallery")}>← 返回图纸库</button>
-            <div><h1>{pattern.name}</h1><span>{pattern.size} × {pattern.size} 针 · {palette.length} 色</span></div>
+            <button className="back-link" onClick={() => user ? requireUser("projects") : setView("home")}>← 返回我的绣框</button>
+            <div className="title-editor">
+              <label>
+                <input value={pattern.name} onChange={(event) => renamePattern(event.target.value)} disabled={Boolean(sharedFrom)} aria-label="作品名称" />
+                {!sharedFrom && <i>✎</i>}
+              </label>
+              <span>{sharedFrom ? `来自 ${sharedFrom} 的完成作品` : "点击名称即可修改"} · {pattern.size} × {pattern.size} 针 · {palette.length} 色</span>
+            </div>
             <div className="studio-actions">
-              <span className={`save-state state-${saveStatus}`}>
+              {!sharedFrom && <span className={`save-state state-${saveStatus}`}>
                 {saveStatus === "saving" && "正在保存…"}
                 {saveStatus === "dirty" && "有未保存的进度"}
                 {saveStatus === "saved" && `已保存${lastSavedAt ? ` · ${new Date(lastSavedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}` : ""}`}
                 {saveStatus === "error" && "保存失败"}
-              </span>
-              <button onClick={undo}>↶ 撤销</button>
-              <button onClick={resetProgress}>重置</button>
-              <button className="save-progress" onClick={saveProgress} disabled={saveStatus === "saving"}>▣ 保存进度</button>
+              </span>}
+              {!sharedFrom && <button onClick={undo}>↶ 撤销</button>}
+              {!sharedFrom && <button onClick={resetProgress}>重置</button>}
+              {progress === 100 && <button onClick={() => downloadFinished("transparent")}>保存透明图</button>}
+              {progress === 100 && <button onClick={() => downloadFinished("white")}>保存白底图</button>}
+              {progress === 100 && <button className="share-button" onClick={openShare}>✉ 分享</button>}
+              {!sharedFrom && <button className="save-progress" onClick={saveProgress} disabled={saveStatus === "saving"}>▣ 保存进度</button>}
             </div>
           </div>
           <div className="studio-layout">
@@ -979,6 +1299,7 @@ export default function Home() {
                   selectedColor={selectedColor}
                   animatedIndex={animatedIndex}
                   animationNonce={animationNonce}
+                  highlightFlash={highlightFlash}
                   onStitch={stitchCell}
                 />
               </div>
@@ -997,7 +1318,7 @@ export default function Home() {
                   const total = pattern.grid.filter((c) => c === colorIndex).length;
                   const done = pattern.grid.filter((c, index) => c === colorIndex && stitched.has(index)).length;
                   return (
-                    <button key={colorIndex} className={selectedColor === colorIndex ? "selected" : ""} onClick={() => setSelectedColor(colorIndex)}>
+                    <button key={colorIndex} className={selectedColor === colorIndex ? "selected" : ""} onClick={() => selectThread(colorIndex)}>
                       <span className="floss-bundle" style={{ "--floss": activeThreads[colorIndex].hex } as React.CSSProperties}>
                         <i /><i /><i /><i /><i /><i /><i />
                         <em>{paletteIndex + 1}</em>
@@ -1020,10 +1341,33 @@ export default function Home() {
 
       <footer><div className="brand footer-brand"><span className="brand-mark"><i>×</i><i>×</i><i>×</i><i>×</i></span><span><b>针迹小屋</b><small>STITCH &amp; SLOW</small></span></div><p>把快生活，绣得慢一点。</p><span>高清图片转换 · 原创练习图纸</span></footer>
 
+      {celebrationOpen && (
+        <div className="modal-backdrop celebration-backdrop" role="presentation">
+          <div className="confetti" aria-hidden="true">{Array.from({ length: 28 }, (_, index) => <i key={index} style={{ "--i": index } as React.CSSProperties} />)}</div>
+          <section className="celebration-modal" role="dialog" aria-modal="true" aria-label="作品完成">
+            <span className="celebration-hoop">×</span>
+            <p className="eyebrow">STITCHED WITH LOVE</p>
+            <h2>最后一针，完成啦！</h2>
+            <p>《{pattern.name}》已经全部绣好。现在可以保存无网格成品图，或把作品装进信封寄给朋友。</p>
+            <div className="celebration-actions">
+              <button className="secondary" onClick={() => downloadFinished("transparent")}>保存透明底图片</button>
+              <button className="secondary" onClick={() => downloadFinished("white")}>保存白底图片</button>
+              <button className="primary" onClick={() => { setCelebrationOpen(false); openShare(); }}>分享给朋友 <span>→</span></button>
+            </div>
+            <button className="text-button" onClick={() => setCelebrationOpen(false)}>暂时不用，回到作品</button>
+          </section>
+        </div>
+      )}
+
+      {shareOpen && <ShareModal patternName={pattern.name} phase={sharePhase} onClose={() => setShareOpen(false)} onSend={sendShare} />}
       {authOpen && <AuthModal onClose={() => setAuthOpen(false)} onSuccess={(email) => {
         setUser(email);
         setAuthOpen(false);
         if (pendingAction === "studio") void resumeLatest(email);
+        else if (pendingAction === "projects") {
+          setView("projects");
+          void loadProjects(email);
+        }
         else setView(pendingAction);
       }} />}
       {toast && <div className="toast">{toast}</div>}

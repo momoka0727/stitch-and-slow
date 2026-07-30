@@ -17,3 +17,11 @@ export const stitchProgress = sqliteTable(
     ),
   ],
 );
+
+export const sharedProjects = sqliteTable("shared_projects", {
+  id: text("id").primaryKey(),
+  senderName: text("sender_name").notNull(),
+  recipientEmail: text("recipient_email").notNull(),
+  patternJson: text("pattern_json").notNull(),
+  createdAt: integer("created_at").notNull(),
+});
