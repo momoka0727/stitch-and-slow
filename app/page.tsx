@@ -603,6 +603,7 @@ export default function Home() {
   const [shareOpen, setShareOpen] = useState(false);
   const [sharePhase, setSharePhase] = useState<"form" | "sending" | "sent">("form");
   const [highlightFlash, setHighlightFlash] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const [sharedFrom, setSharedFrom] = useState("");
   const [toast, setToast] = useState("");
   const [uploadPreview, setUploadPreview] = useState("");
@@ -612,6 +613,7 @@ export default function Home() {
   const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem("stitch-user");
@@ -739,6 +741,7 @@ export default function Home() {
     setLastSavedAt(null);
     setSharedFrom("");
     setCelebrationOpen(false);
+    setPreviewing(false);
     setView("studio");
     void loadSavedProgress(next);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -777,6 +780,13 @@ export default function Home() {
     window.requestAnimationFrame(() => setHighlightFlash(true));
     if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
     highlightTimerRef.current = setTimeout(() => setHighlightFlash(false), 1250);
+  };
+
+  const previewFinishedPattern = () => {
+    if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
+    setAnimatedIndex(null);
+    setPreviewing(true);
+    previewTimerRef.current = setTimeout(() => setPreviewing(false), 3000);
   };
 
   const undo = () => {
@@ -1283,6 +1293,7 @@ export default function Home() {
               {progress === 100 && <button onClick={() => downloadFinished("transparent")}>保存透明图</button>}
               {progress === 100 && <button onClick={() => downloadFinished("white")}>保存白底图</button>}
               {progress === 100 && <button className="share-button" onClick={openShare}>✉ 分享</button>}
+              <button className="preview-button" onClick={previewFinishedPattern}>◉ {previewing ? "预览中…" : "预览成品"}</button>
               {!sharedFrom && <button className="save-progress" onClick={saveProgress} disabled={saveStatus === "saving"}>▣ 保存进度</button>}
             </div>
           </div>
@@ -1295,13 +1306,14 @@ export default function Home() {
               <div className="canvas-paper">
                 <CrossCanvas
                   pattern={pattern}
-                  stitched={stitched}
+                  stitched={previewing ? undefined : stitched}
                   selectedColor={selectedColor}
                   animatedIndex={animatedIndex}
                   animationNonce={animationNonce}
                   highlightFlash={highlightFlash}
-                  onStitch={stitchCell}
+                  onStitch={previewing ? undefined : stitchCell}
                 />
+                {previewing && <div className="preview-notice"><span>◉</span><b>完整成品预览</b><small>3 秒后自动返回当前进度</small></div>}
               </div>
               <div className="progress-card"><div><span>今日针迹</span><b>{stitched.size} / {patternCells.length}</b></div><div className="progress-track"><i style={{ width: `${progress}%` }} /></div><strong>{progress}%</strong></div>
             </div>
