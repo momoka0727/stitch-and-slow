@@ -1,4 +1,19 @@
-// Intentionally empty by default.
-// Add Drizzle tables here when the site actually needs a database.
-// See examples/d1/db/schema.ts for an opt-in example.
-export {};
+import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+
+export const stitchProgress = sqliteTable(
+  "stitch_progress",
+  {
+    id: text("id").primaryKey(),
+    userEmail: text("user_email").notNull(),
+    patternId: text("pattern_id").notNull(),
+    patternJson: text("pattern_json").notNull(),
+    stitchedJson: text("stitched_json").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("stitch_progress_user_pattern_idx").on(
+      table.userEmail,
+      table.patternId,
+    ),
+  ],
+);

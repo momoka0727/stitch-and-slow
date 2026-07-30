@@ -149,12 +149,16 @@ function CrossCanvas({
   compact = false,
   stitched,
   selectedColor,
+  animatedIndex,
+  animationNonce,
   onStitch,
 }: {
   pattern: Pattern;
   compact?: boolean;
   stitched?: Set<number>;
   selectedColor?: number;
+  animatedIndex?: number | null;
+  animationNonce?: number;
   onStitch?: (index: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -168,53 +172,179 @@ function CrossCanvas({
     canvas.height = display * ratio;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.scale(ratio, ratio);
     const cell = display / pattern.size;
-    ctx.fillStyle = compact ? "#F7F1E6" : "#FBF8F0";
-    ctx.fillRect(0, 0, display, display);
-    if (!compact) {
-      ctx.strokeStyle = "rgba(88,73,53,.12)";
-      ctx.lineWidth = 1;
-      for (let i = 0; i <= pattern.size; i += 1) {
-        ctx.beginPath();
-        ctx.moveTo(i * cell, 0);
-        ctx.lineTo(i * cell, display);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(0, i * cell);
-        ctx.lineTo(display, i * cell);
-        ctx.stroke();
-      }
-    }
-    pattern.grid.forEach((colorIndex, index) => {
-      if (colorIndex < 0) return;
-      const x = (index % pattern.size) * cell;
-      const y = Math.floor(index / pattern.size) * cell;
-      const isDone = compact || !stitched || stitched.has(index);
-      const color = THREADS[colorIndex];
-      ctx.strokeStyle = isDone ? color.hex : `${color.hex}3D`;
-      ctx.lineWidth = compact ? Math.max(1.4, cell * .3) : Math.max(2.2, cell * .22);
+
+    const shade = (hex: string, amount: number) => {
+      const parts = hex.match(/\w\w/g)?.map((part) => parseInt(part, 16)) || [80, 80, 80];
+      return `rgb(${parts.map((part) => Math.max(0, Math.min(255, part + amount))).join(",")})`;
+    };
+
+    const drawThread = (
+      x1: number,
+      y1: number,
+      x2: number,
+      y2: number,
+      hex: string,
+      fraction = 1,
+    ) => {
+      const endX = x1 + (x2 - x1) * fraction;
+      const endY = y1 + (y2 - y1) * fraction;
+      ctx.save();
       ctx.lineCap = "round";
+      ctx.shadowColor = "rgba(45, 27, 15, .42)";
+      ctx.shadowBlur = Math.max(1.2, cell * .11);
+      ctx.shadowOffsetX = cell * .045;
+      ctx.shadowOffsetY = cell * .075;
+      ctx.strokeStyle = shade(hex, -48);
+      ctx.lineWidth = Math.max(2.5, cell * .31);
       ctx.beginPath();
-      ctx.moveTo(x + cell * .24, y + cell * .24);
-      ctx.lineTo(x + cell * .76, y + cell * .76);
-      ctx.moveTo(x + cell * .76, y + cell * .24);
-      ctx.lineTo(x + cell * .24, y + cell * .76);
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(endX, endY);
       ctx.stroke();
-      if (!compact && !isDone) {
-        ctx.fillStyle = `${color.hex}55`;
-        ctx.font = `${Math.max(8, cell * .38)}px ui-monospace`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(color.code.slice(-1), x + cell / 2, y + cell / 2);
+      ctx.shadowColor = "transparent";
+      const body = ctx.createLinearGradient(x1, y1, endX, endY);
+      body.addColorStop(0, shade(hex, -20));
+      body.addColorStop(.38, shade(hex, 24));
+      body.addColorStop(.62, hex);
+      body.addColorStop(1, shade(hex, -27));
+      ctx.strokeStyle = body;
+      ctx.lineWidth = Math.max(2, cell * .24);
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(255,255,255,.34)";
+      ctx.lineWidth = Math.max(.7, cell * .055);
+      ctx.beginPath();
+      ctx.moveTo(x1 + cell * .025, y1 - cell * .025);
+      ctx.lineTo(endX + cell * .025, endY - cell * .025);
+      ctx.stroke();
+      ctx.restore();
+      return { x: endX, y: endY };
+    };
+
+    const drawNeedle = (x: number, y: number, angle: number, hex: string) => {
+      const length = cell * 1.12;
+      const tailX = x + Math.cos(angle) * length;
+      const tailY = y + Math.sin(angle) * length;
+      ctx.save();
+      ctx.lineCap = "round";
+      ctx.shadowColor = "rgba(36, 38, 36, .4)";
+      ctx.shadowBlur = cell * .12;
+      ctx.shadowOffsetY = cell * .08;
+      const metal = ctx.createLinearGradient(x, y, tailX, tailY);
+      metal.addColorStop(0, "#5e6869");
+      metal.addColorStop(.35, "#ffffff");
+      metal.addColorStop(.62, "#aeb8b8");
+      metal.addColorStop(1, "#f9ffff");
+      ctx.strokeStyle = metal;
+      ctx.lineWidth = Math.max(2, cell * .18);
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(tailX, tailY);
+      ctx.stroke();
+      ctx.shadowColor = "transparent";
+      ctx.strokeStyle = "#5d6667";
+      ctx.lineWidth = Math.max(1, cell * .055);
+      ctx.beginPath();
+      ctx.ellipse(tailX, tailY, cell * .11, cell * .055, angle, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = shade(hex, -18);
+      ctx.lineWidth = Math.max(1.5, cell * .12);
+      ctx.beginPath();
+      ctx.moveTo(tailX, tailY);
+      ctx.quadraticCurveTo(
+        tailX + cell * .7,
+        tailY + cell * .25,
+        tailX + cell * .9,
+        tailY + cell * .78,
+      );
+      ctx.stroke();
+      ctx.restore();
+    };
+
+    const drawFrame = (animationProgress: number) => {
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      ctx.clearRect(0, 0, display, display);
+      ctx.fillStyle = compact ? "#F7F1E6" : "#FBF8F0";
+      ctx.fillRect(0, 0, display, display);
+      if (!compact) {
+        ctx.strokeStyle = "rgba(88,73,53,.12)";
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= pattern.size; i += 1) {
+          ctx.beginPath();
+          ctx.moveTo(i * cell, 0);
+          ctx.lineTo(i * cell, display);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(0, i * cell);
+          ctx.lineTo(display, i * cell);
+          ctx.stroke();
+        }
       }
-    });
-    if (!compact && selectedColor !== undefined) {
-      ctx.strokeStyle = THREADS[selectedColor].hex;
-      ctx.lineWidth = 3;
-      ctx.strokeRect(1.5, 1.5, display - 3, display - 3);
+      pattern.grid.forEach((colorIndex, index) => {
+        if (colorIndex < 0) return;
+        const x = (index % pattern.size) * cell;
+        const y = Math.floor(index / pattern.size) * cell;
+        const isDone = compact || !stitched || stitched.has(index);
+        const color = THREADS[colorIndex];
+        if (!isDone) {
+          if (!compact) {
+            ctx.fillStyle = `${color.hex}48`;
+            ctx.font = `${Math.max(8, cell * .38)}px ui-monospace`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(color.code.slice(-1), x + cell / 2, y + cell / 2);
+          }
+          return;
+        }
+        const pad = cell * .22;
+        const a = { x: x + pad, y: y + pad };
+        const b = { x: x + cell - pad, y: y + cell - pad };
+        const c = { x: x + cell - pad, y: y + pad };
+        const d = { x: x + pad, y: y + cell - pad };
+        const isAnimating = !compact && index === animatedIndex && animationProgress < 1;
+        if (!isAnimating) {
+          drawThread(a.x, a.y, b.x, b.y, color.hex);
+          drawThread(c.x, c.y, d.x, d.y, color.hex);
+          return;
+        }
+        if (animationProgress <= .48) {
+          const fraction = Math.min(1, animationProgress / .48);
+          const endpoint = drawThread(a.x, a.y, b.x, b.y, color.hex, fraction);
+          drawNeedle(endpoint.x, endpoint.y, -.72, color.hex);
+        } else {
+          drawThread(a.x, a.y, b.x, b.y, color.hex);
+          const fraction = Math.min(1, (animationProgress - .48) / .52);
+          const endpoint = drawThread(c.x, c.y, d.x, d.y, color.hex, fraction);
+          drawNeedle(endpoint.x, endpoint.y, -.72, color.hex);
+        }
+      });
+      if (!compact && selectedColor !== undefined) {
+        ctx.strokeStyle = THREADS[selectedColor].hex;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(1.5, 1.5, display - 3, display - 3);
+      }
+    };
+
+    if (compact || animatedIndex == null) {
+      drawFrame(1);
+      return;
     }
-  }, [pattern, compact, stitched, selectedColor, display]);
+
+    let frame = 0;
+    const start = performance.now();
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const duration = reducedMotion ? 1 : 640;
+    const animate = (time: number) => {
+      const raw = Math.min(1, (time - start) / duration);
+      const eased = 1 - (1 - raw) ** 3;
+      drawFrame(eased);
+      if (raw < 1) frame = requestAnimationFrame(animate);
+    };
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [pattern, compact, stitched, selectedColor, animatedIndex, animationNonce, display]);
 
   const handlePointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (!onStitch) return;
@@ -274,7 +404,7 @@ function AuthModal({
           {error && <p className="form-error">{error}</p>}
           <button className="primary wide" type="submit">{mode === "register" ? "创建账号并开始" : "登录并继续"} <span>→</span></button>
         </form>
-        <p className="privacy-note">本演示版仅在此设备保存登录状态，不上传密码。</p>
+        <p className="privacy-note">不会上传密码；作品进度会与此邮箱关联并安全保存。</p>
       </section>
     </div>
   );
@@ -288,6 +418,10 @@ export default function Home() {
   const [pattern, setPattern] = useState<Pattern>(PATTERNS[0]);
   const [selectedColor, setSelectedColor] = useState(16);
   const [stitched, setStitched] = useState<Set<number>>(() => new Set());
+  const [animatedIndex, setAnimatedIndex] = useState<number | null>(null);
+  const [animationNonce, setAnimationNonce] = useState(0);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "dirty" | "saving" | "saved" | "error">("idle");
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [toast, setToast] = useState("");
   const [uploadPreview, setUploadPreview] = useState("");
   const [uploadFileName, setUploadFileName] = useState("");
@@ -295,6 +429,7 @@ export default function Home() {
   const [colorCount, setColorCount] = useState(10);
   const [search, setSearch] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  const animationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem("stitch-user");
@@ -306,9 +441,64 @@ export default function Home() {
   const palette = useMemo(() => Array.from(new Set(pattern.grid.filter((v) => v >= 0))), [pattern]);
   const filteredPatterns = PATTERNS.filter((item) => `${item.name}${item.subtitle}`.includes(search));
 
+  const applySavedProgress = (row: { patternJson: string; stitchedJson: string; updatedAt: number } | null, fallback?: Pattern) => {
+    if (!row) {
+      if (fallback) {
+        setPattern(fallback);
+        setSelectedColor(Array.from(new Set(fallback.grid.filter((v) => v >= 0)))[0] || 0);
+      }
+      setStitched(new Set());
+      setSaveStatus("idle");
+      setLastSavedAt(null);
+      return false;
+    }
+    try {
+      const savedPattern = JSON.parse(row.patternJson) as Pattern;
+      const restoredPattern = PATTERNS.find((item) => item.id === savedPattern.id) || savedPattern;
+      const restoredStitches = (JSON.parse(row.stitchedJson) as number[])
+        .filter((index) => Number.isInteger(index) && index >= 0 && index < restoredPattern.grid.length);
+      setPattern(restoredPattern);
+      setSelectedColor(Array.from(new Set(restoredPattern.grid.filter((v) => v >= 0)))[0] || 0);
+      setStitched(new Set(restoredStitches));
+      setSaveStatus("saved");
+      setLastSavedAt(row.updatedAt);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const loadSavedProgress = async (next: Pattern) => {
+    if (!user) return;
+    try {
+      const params = new URLSearchParams({ user, pattern: next.id });
+      const response = await fetch(`/api/progress?${params}`);
+      if (!response.ok) return;
+      const data = await response.json() as { progress: { patternJson: string; stitchedJson: string; updatedAt: number } | null };
+      applySavedProgress(data.progress, next);
+    } catch {
+      // The selected pattern remains usable even if cloud progress is unavailable.
+    }
+  };
+
+  const resumeLatest = async (email = user) => {
+    setView("studio");
+    if (!email) return;
+    try {
+      const params = new URLSearchParams({ user: email });
+      const response = await fetch(`/api/progress?${params}`);
+      if (!response.ok) return;
+      const data = await response.json() as { progress: { patternJson: string; stitchedJson: string; updatedAt: number } | null };
+      if (applySavedProgress(data.progress)) showToast("已载入上次保存的进度");
+    } catch {
+      // Start with the current pattern if no saved project can be loaded.
+    }
+  };
+
   const requireUser = (action: "upload" | "gallery" | "studio") => {
     if (user) {
-      setView(action);
+      if (action === "studio") void resumeLatest();
+      else setView(action);
     } else {
       setPendingAction(action);
       setAuthOpen(true);
@@ -319,7 +509,10 @@ export default function Home() {
     setPattern(next);
     setSelectedColor(Array.from(new Set(next.grid.filter((v) => v >= 0)))[0] || 0);
     setStitched(new Set());
+    setSaveStatus("idle");
+    setLastSavedAt(null);
     setView("studio");
+    void loadSavedProgress(next);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -336,22 +529,11 @@ export default function Home() {
       return;
     }
     setStitched((current) => new Set(current).add(index));
-  };
-
-  const autoStitch = () => {
-    const matches = pattern.grid
-      .map((color, index) => ({ color, index }))
-      .filter((cell) => cell.color === selectedColor && !stitched.has(cell.index))
-      .slice(0, 12);
-    if (!matches.length) {
-      showToast("这个颜色已经绣完啦");
-      return;
-    }
-    setStitched((current) => {
-      const next = new Set(current);
-      matches.forEach((cell) => next.add(cell.index));
-      return next;
-    });
+    setSaveStatus("dirty");
+    setAnimatedIndex(index);
+    setAnimationNonce((current) => current + 1);
+    if (animationTimerRef.current) clearTimeout(animationTimerRef.current);
+    animationTimerRef.current = setTimeout(() => setAnimatedIndex(null), 680);
   };
 
   const undo = () => {
@@ -359,6 +541,38 @@ export default function Home() {
     if (!values.length) return;
     values.pop();
     setStitched(new Set(values));
+    setSaveStatus("dirty");
+  };
+
+  const resetProgress = () => {
+    setStitched(new Set());
+    setSaveStatus("dirty");
+    setAnimatedIndex(null);
+  };
+
+  const saveProgress = async () => {
+    if (!user || saveStatus === "saving") return;
+    setSaveStatus("saving");
+    try {
+      const response = await fetch("/api/progress", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          userEmail: user,
+          patternId: pattern.id,
+          pattern,
+          stitched: Array.from(stitched),
+        }),
+      });
+      if (!response.ok) throw new Error("save failed");
+      const result = await response.json() as { savedAt: number };
+      setLastSavedAt(result.savedAt);
+      setSaveStatus("saved");
+      showToast("当前进度已保存");
+    } catch {
+      setSaveStatus("error");
+      showToast("保存失败，请稍后再试");
+    }
   };
 
   const chooseFile = (event: ChangeEvent<HTMLInputElement>) => {
@@ -545,17 +759,33 @@ export default function Home() {
           <div className="studio-topbar">
             <button className="back-link" onClick={() => setView("gallery")}>← 返回图纸库</button>
             <div><h1>{pattern.name}</h1><span>{pattern.size} × {pattern.size} 针 · {palette.length} 色</span></div>
-            <div className="studio-actions"><button onClick={undo}>↶ 撤销</button><button onClick={() => setStitched(new Set())}>重置</button></div>
+            <div className="studio-actions">
+              <span className={`save-state state-${saveStatus}`}>
+                {saveStatus === "saving" && "正在保存…"}
+                {saveStatus === "dirty" && "有未保存的进度"}
+                {saveStatus === "saved" && `已保存${lastSavedAt ? ` · ${new Date(lastSavedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}` : ""}`}
+                {saveStatus === "error" && "保存失败"}
+              </span>
+              <button onClick={undo}>↶ 撤销</button>
+              <button onClick={resetProgress}>重置</button>
+              <button className="save-progress" onClick={saveProgress} disabled={saveStatus === "saving"}>▣ 保存进度</button>
+            </div>
           </div>
           <div className="studio-layout">
             <aside className="tool-rail">
               <button className="active" title="单针模式">⌁<span>单针</span></button>
-              <button onClick={autoStitch} title="快速填充当前颜色">✦<span>快绣</span></button>
               <button title="放大图纸">＋<span>放大</span></button>
             </aside>
             <div className="canvas-stage">
               <div className="canvas-paper">
-                <CrossCanvas pattern={pattern} stitched={stitched} selectedColor={selectedColor} onStitch={stitchCell} />
+                <CrossCanvas
+                  pattern={pattern}
+                  stitched={stitched}
+                  selectedColor={selectedColor}
+                  animatedIndex={animatedIndex}
+                  animationNonce={animationNonce}
+                  onStitch={stitchCell}
+                />
               </div>
               <div className="progress-card"><div><span>今日针迹</span><b>{stitched.size} / {patternCells.length}</b></div><div className="progress-track"><i style={{ width: `${progress}%` }} /></div><strong>{progress}%</strong></div>
             </div>
@@ -575,7 +805,6 @@ export default function Home() {
                   );
                 })}
               </div>
-              <button className="auto-button" onClick={autoStitch}>✦ 快绣当前色 12 针</button>
               <div className="shopping-note"><span>✓</span><p><b>配线已核对</b><small>以上线号与图纸一一对应，购买时按 DMC 编号选择即可。</small></p></div>
             </aside>
           </div>
@@ -584,7 +813,12 @@ export default function Home() {
 
       <footer><div className="brand footer-brand"><span className="brand-mark"><i>×</i><i>×</i><i>×</i><i>×</i></span><span><b>针迹小屋</b><small>STITCH &amp; SLOW</small></span></div><p>把快生活，绣得慢一点。</p><span>原创练习图纸 · DMC 配色参考</span></footer>
 
-      {authOpen && <AuthModal onClose={() => setAuthOpen(false)} onSuccess={(email) => { setUser(email); setAuthOpen(false); setView(pendingAction); }} />}
+      {authOpen && <AuthModal onClose={() => setAuthOpen(false)} onSuccess={(email) => {
+        setUser(email);
+        setAuthOpen(false);
+        if (pendingAction === "studio") void resumeLatest(email);
+        else setView(pendingAction);
+      }} />}
       {toast && <div className="toast">{toast}</div>}
     </main>
   );
