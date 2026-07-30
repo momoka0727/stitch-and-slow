@@ -17,6 +17,8 @@ type Pattern = {
   minutes: number;
   grid: number[];
   originalGrid?: number[];
+  completed?: boolean;
+  completedStitches?: number[];
   colors?: ThreadColor[];
 };
 
@@ -638,7 +640,10 @@ export default function Home() {
           const sharedPattern = JSON.parse(data.share.patternJson) as Pattern;
           setPattern(sharedPattern);
           setSelectedColor(Array.from(new Set(sharedPattern.grid.filter((value) => value >= 0)))[0] || 0);
-          setStitched(new Set(sharedPattern.grid.map((value, index) => value >= 0 ? index : -1).filter((index) => index >= 0)));
+          const sharedStitches = sharedPattern.completedStitches?.filter((index) =>
+            Number.isInteger(index) && index >= 0 && index < sharedPattern.grid.length,
+          ) || sharedPattern.grid.map((value, index) => value >= 0 ? index : -1).filter((index) => index >= 0);
+          setStitched(new Set(sharedStitches));
           setSharedFrom(data.share.senderName);
           setSaveStatus("saved");
           setView("studio");
@@ -673,6 +678,7 @@ export default function Home() {
       // Keep the exact saved grid so user-selected replacement colors survive reopening.
       const restoredPattern = {
         ...savedPattern,
+        completed: Boolean(savedPattern.completed),
         originalGrid: savedPattern.originalGrid?.length === savedPattern.grid.length
           ? [...savedPattern.originalGrid]
           : builtInOriginal?.length === savedPattern.grid.length
@@ -761,6 +767,8 @@ export default function Home() {
       ...next,
       grid: [...next.grid],
       originalGrid: next.originalGrid?.length === next.grid.length ? [...next.originalGrid] : [...next.grid],
+      completed: false,
+      completedStitches: undefined,
     };
     setPattern(preparedPattern);
     setSelectedColor(Array.from(new Set(next.grid.filter((v) => v >= 0)))[0] || 0);
@@ -784,10 +792,12 @@ export default function Home() {
     if (stitched.has(index)) {
       setPattern((current) => {
         const original = current.originalGrid?.[index];
-        if (original === undefined || current.grid[index] === original) return current;
+        if (original === undefined || current.grid[index] === original) {
+          return { ...current, completed: false, completedStitches: undefined };
+        }
         const grid = [...current.grid];
         grid[index] = original;
-        return { ...current, grid };
+        return { ...current, grid, completed: false, completedStitches: undefined };
       });
       setStitched((current) => {
         const next = new Set(current);
@@ -802,10 +812,12 @@ export default function Home() {
       const originalGrid = current.originalGrid?.length === current.grid.length
         ? current.originalGrid
         : [...current.grid];
-      if (current.grid[index] === selectedColor && current.originalGrid) return current;
+      if (current.grid[index] === selectedColor && current.originalGrid) {
+        return { ...current, completed: false, completedStitches: undefined };
+      }
       const grid = [...current.grid];
       grid[index] = selectedColor;
-      return { ...current, grid, originalGrid };
+      return { ...current, grid, originalGrid, completed: false, completedStitches: undefined };
     });
     setStitched((current) => new Set(current).add(index));
     setSaveStatus("dirty");
@@ -837,10 +849,12 @@ export default function Home() {
     if (index !== undefined) {
       setPattern((current) => {
         const original = current.originalGrid?.[index];
-        if (original === undefined || current.grid[index] === original) return current;
+        if (original === undefined || current.grid[index] === original) {
+          return { ...current, completed: false, completedStitches: undefined };
+        }
         const grid = [...current.grid];
         grid[index] = original;
-        return { ...current, grid };
+        return { ...current, grid, completed: false, completedStitches: undefined };
       });
     }
     setStitched(new Set(values));
@@ -849,8 +863,8 @@ export default function Home() {
 
   const resetProgress = () => {
     setPattern((current) => current.originalGrid?.length === current.grid.length
-      ? { ...current, grid: [...current.originalGrid] }
-      : current);
+      ? { ...current, grid: [...current.originalGrid], completed: false, completedStitches: undefined }
+      : { ...current, completed: false, completedStitches: undefined });
     setStitched(new Set());
     setSaveStatus("dirty");
     setAnimatedIndex(null);
@@ -891,13 +905,14 @@ export default function Home() {
   const saveProgress = () => void persistProgress(false);
 
   const finishPattern = () => {
-    if (progress < 100) {
-      showToast("全部绣完后即可完成并保存图纸");
-      return;
-    }
-    const completedPattern = { ...pattern, originalGrid: [...pattern.grid] };
+    const completedPattern = {
+      ...pattern,
+      originalGrid: [...pattern.grid],
+      completed: true,
+      completedStitches: Array.from(stitched),
+    };
     setPattern(completedPattern);
-    void persistProgress(false, completedPattern, stitched, "完成图纸和标记已保存");
+    void persistProgress(false, completedPattern, stitched, "作品已完成，图纸标记已保存");
   };
 
   useEffect(() => {
@@ -915,8 +930,8 @@ export default function Home() {
   };
 
   const downloadFinished = (background: "transparent" | "white") => {
-    if (progress < 100) {
-      showToast("完成 100% 后即可保存成品图片");
+    if (!pattern.completed && !sharedFrom) {
+      showToast("请先将作品标记为完成");
       return;
     }
     const cell = 18;
@@ -936,7 +951,7 @@ export default function Home() {
       return `rgb(${rgb.map((value) => Math.max(0, value - 46)).join(",")})`;
     };
     pattern.grid.forEach((colorIndex, index) => {
-      if (colorIndex < 0) return;
+      if (colorIndex < 0 || !stitched.has(index)) return;
       const x = (index % pattern.size) * cell;
       const y = Math.floor(index / pattern.size) * cell;
       const color = activeThreads[colorIndex]?.hex || "#333333";
@@ -985,8 +1000,8 @@ export default function Home() {
   };
 
   const openShare = () => {
-    if (progress < 100) {
-      showToast("完成 100% 后即可分享作品");
+    if (!pattern.completed && !sharedFrom) {
+      showToast("请先将作品标记为完成");
       return;
     }
     setSharePhase("form");
@@ -1289,7 +1304,7 @@ export default function Home() {
             <div className="steps">
               <article><span>01</span><i>↑</i><h3>选择一张图片</h3><p>上传自己的照片，或从原创图纸库里挑一张。</p></article>
               <article><span>02</span><i>▦</i><h3>生成图纸与配线</h3><p>用高清网格提取原图颜色，并智能识别背景与内部白色。</p></article>
-              <article><span>03</span><i>×</i><h3>跟着颜色落针</h3><p>选择对应线色逐格完成，选错线时会及时提醒。</p></article>
+              <article><span>03</span><i>×</i><h3>按自己的方式落针</h3><p>选择喜欢的线色逐格完成，也可以随时改色和撤销。</p></article>
             </div>
           </section>
 
@@ -1364,18 +1379,19 @@ export default function Home() {
                   const savedStitches = JSON.parse(row.stitchedJson) as number[];
                   const total = savedPattern.grid.filter((value) => value >= 0).length;
                   const percent = total ? Math.round((savedStitches.length / total) * 100) : 0;
+                  const isComplete = Boolean(savedPattern.completed);
                   return (
                     <article className="project-card" key={row.id}>
                       <button className="project-preview" onClick={() => openSavedProject(row)}>
                         <CrossCanvas pattern={savedPattern} compact />
-                        <span className={percent === 100 ? "complete" : ""}>{percent === 100 ? "已完成" : `${percent}%`}</span>
+                        <span className={isComplete ? "complete" : ""}>{isComplete ? "已完成" : `${percent}%`}</span>
                       </button>
                       <div className="project-card-copy">
                         <h2>{savedPattern.name}</h2>
                         <p>{savedPattern.size} × {savedPattern.size} 针 · {Array.from(new Set(savedPattern.grid.filter((value) => value >= 0))).length} 色</p>
                         <div className="project-progress"><i style={{ width: `${percent}%` }} /></div>
                         <small>上次保存 {new Date(row.updatedAt).toLocaleDateString("zh-CN")}</small>
-                        <button onClick={() => openSavedProject(row)}>{percent === 100 ? "查看成品" : "继续绣"} →</button>
+                        <button onClick={() => openSavedProject(row)}>{isComplete ? "查看成品" : "继续绣"} →</button>
                       </div>
                     </article>
                   );
@@ -1399,7 +1415,7 @@ export default function Home() {
                 <input value={pattern.name} onChange={(event) => renamePattern(event.target.value)} disabled={Boolean(sharedFrom)} aria-label="作品名称" />
                 {!sharedFrom && <i>✎</i>}
               </label>
-              <span>{sharedFrom ? `来自 ${sharedFrom} 的完成作品` : "点击名称即可修改"} · {pattern.size} × {pattern.size} 针 · {palette.length} 色</span>
+              <span>{sharedFrom ? `来自 ${sharedFrom} 的完成作品` : `${pattern.completed ? "已完成" : "进行中"} · 点击名称即可修改`} · {pattern.size} × {pattern.size} 针 · {palette.length} 色</span>
             </div>
             <div className="studio-actions">
               {!sharedFrom && <span className={`save-state state-${saveStatus}`}>
@@ -1410,10 +1426,10 @@ export default function Home() {
               </span>}
               {!sharedFrom && <button onClick={undo}>↶ 撤销</button>}
               {!sharedFrom && <button onClick={resetProgress}>重置</button>}
-              {progress === 100 && !sharedFrom && <button className="finish-pattern" onClick={finishPattern} disabled={saveStatus === "saving"}>✓ 完成并保存</button>}
-              {progress === 100 && <button onClick={() => downloadFinished("transparent")}>保存透明图</button>}
-              {progress === 100 && <button onClick={() => downloadFinished("white")}>保存白底图</button>}
-              {progress === 100 && <button className="share-button" onClick={openShare}>✉ 分享</button>}
+              {!sharedFrom && <button className="finish-pattern" onClick={finishPattern} disabled={saveStatus === "saving" || pattern.completed}>✓ {pattern.completed ? "已完成" : "完成"}</button>}
+              {(pattern.completed || sharedFrom) && <button onClick={() => downloadFinished("transparent")}>保存透明图</button>}
+              {(pattern.completed || sharedFrom) && <button onClick={() => downloadFinished("white")}>保存白底图</button>}
+              {(pattern.completed || sharedFrom) && <button className="share-button" onClick={openShare}>✉ 分享</button>}
               <button className="preview-button" onClick={previewFinishedPattern}>◉ {previewing ? "预览中…" : "预览成品"}</button>
               {!sharedFrom && <button className="save-progress" onClick={saveProgress} disabled={saveStatus === "saving"}>▣ 保存进度</button>}
             </div>
