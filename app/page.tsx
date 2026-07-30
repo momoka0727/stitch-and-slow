@@ -182,9 +182,9 @@ function createAdaptivePalette(samples: Rgb[], limit = 28) {
   if (!points.length) return [{ r: 255, g: 255, b: 255 }];
   const population = points.reduce((sum, point) => sum + point.count, 0);
   const filteredPoints = points
-    .filter((point) => point.count >= Math.max(2, population * .00035))
-    .slice(0, 180);
-  const meaningfulPoints = filteredPoints.length ? filteredPoints : points.slice(0, 180);
+    .filter((point) => point.count >= Math.max(2, population * .00012))
+    .slice(0, 240);
+  const meaningfulPoints = filteredPoints.length ? filteredPoints : points.slice(0, 240);
 
   const target = Math.min(limit, meaningfulPoints.length);
   const centers: Rgb[] = [{ r: meaningfulPoints[0].r, g: meaningfulPoints[0].g, b: meaningfulPoints[0].b }];
@@ -245,13 +245,14 @@ function boostStitchColor(color: Rgb): Rgb {
     return { r: color.r * scale, g: color.g * scale, b: color.b * scale };
   }
   const average = (color.r + color.g + color.b) / 3;
-  const saturate = (value: number) => average + (value - average) * 1.28;
-  const contrast = (value: number) => 128 + (value - 128) * 1.14;
+  const saturate = (value: number) => average + (value - average) * 1.38;
+  const contrast = (value: number) => 128 + (value - 128) * 1.17;
+  const depth = luminance < 150 ? 12 : luminance < 210 ? 5 : 0;
   const clamp = (value: number) => Math.max(0, Math.min(255, value));
   return {
-    r: clamp(contrast(saturate(color.r))),
-    g: clamp(contrast(saturate(color.g))),
-    b: clamp(contrast(saturate(color.b))),
+    r: clamp(contrast(saturate(color.r)) - depth),
+    g: clamp(contrast(saturate(color.g)) - depth),
+    b: clamp(contrast(saturate(color.b)) - depth),
   };
 }
 
@@ -319,7 +320,7 @@ function CrossCanvas({
       ctx.shadowColor = "transparent";
       const body = ctx.createLinearGradient(x1, y1, endX, endY);
       body.addColorStop(0, shade(hex, -20));
-      body.addColorStop(.38, shade(hex, 24));
+      body.addColorStop(.38, shade(hex, 12));
       body.addColorStop(.62, hex);
       body.addColorStop(1, shade(hex, -27));
       ctx.strokeStyle = body;
@@ -328,7 +329,7 @@ function CrossCanvas({
       ctx.moveTo(x1, y1);
       ctx.lineTo(endX, endY);
       ctx.stroke();
-      ctx.strokeStyle = "rgba(255,255,255,.34)";
+      ctx.strokeStyle = "rgba(255,255,255,.2)";
       ctx.lineWidth = Math.max(.7, cell * .055);
       ctx.beginPath();
       ctx.moveTo(x1 + cell * .025, y1 - cell * .025);
@@ -971,7 +972,7 @@ export default function Home() {
     }
     const image = new Image();
     image.onload = () => {
-      const gridSize = 64;
+      const gridSize = 80;
       const sourceScale = Math.min(1, 512 / Math.max(image.width, image.height));
       const sourceWidth = Math.max(1, Math.round(image.width * sourceScale));
       const sourceHeight = Math.max(1, Math.round(image.height * sourceScale));
@@ -1030,7 +1031,7 @@ export default function Home() {
           }
         }
       }
-      const centers = createAdaptivePalette(samples, 22);
+      const centers = createAdaptivePalette(samples, 28);
       const nearestCenter = (color: Rgb) => {
         let nearestIndex = 0;
         let nearestDistance = Infinity;
@@ -1069,8 +1070,12 @@ export default function Home() {
           const sourceY0 = Math.max(0, Math.floor(((gridY - offsetY) / height) * sourceHeight));
           const sourceY1 = Math.min(sourceHeight, Math.max(sourceY0 + 1, Math.ceil(((gridY + 1 - offsetY) / height) * sourceHeight)));
           const sampleStep = Math.max(1, Math.floor(Math.max(sourceX1 - sourceX0, sourceY1 - sourceY0) / 8));
-          const counts = new Uint16Array(centers.length);
+          const counts = new Float32Array(centers.length);
           let total = 0;
+          const sourceCenterX = (sourceX0 + sourceX1 - 1) / 2;
+          const sourceCenterY = (sourceY0 + sourceY1 - 1) / 2;
+          const halfWidth = Math.max(1, (sourceX1 - sourceX0) / 2);
+          const halfHeight = Math.max(1, (sourceY1 - sourceY0) / 2);
 
           for (let sourceY = sourceY0; sourceY < sourceY1; sourceY += sampleStep) {
             for (let sourceX = sourceX0; sourceX < sourceX1; sourceX += sampleStep) {
@@ -1081,8 +1086,13 @@ export default function Home() {
                 g: sourcePixels[sourceIndex * 4 + 1],
                 b: sourcePixels[sourceIndex * 4 + 2],
               }));
-              counts[centerIndex] += 1;
-              total += 1;
+              const distanceX = Math.abs(sourceX - sourceCenterX) / halfWidth;
+              const distanceY = Math.abs(sourceY - sourceCenterY) / halfHeight;
+              const weight = distanceX < .3 && distanceY < .3
+                ? 4
+                : distanceX < .58 && distanceY < .58 ? 2 : 1;
+              counts[centerIndex] += weight;
+              total += weight;
             }
           }
           if (!total) continue;
@@ -1092,15 +1102,40 @@ export default function Home() {
             if (count > counts[chosen]) chosen = index;
           });
           const dominantLuminance = luminance(centers[chosen]);
+          const centerPixelX = Math.max(0, Math.min(sourceWidth - 1, Math.round(sourceCenterX)));
+          const centerPixelY = Math.max(0, Math.min(sourceHeight - 1, Math.round(sourceCenterY)));
+          const centerPixelIndex = centerPixelY * sourceWidth + centerPixelX;
+          const centerChoice = nearestCenter(boostStitchColor({
+            r: sourcePixels[centerPixelIndex * 4],
+            g: sourcePixels[centerPixelIndex * 4 + 1],
+            b: sourcePixels[centerPixelIndex * 4 + 2],
+          }));
+          const centerTone = luminance(centers[centerChoice]);
+          const centerChroma = saturation(centers[centerChoice]);
+          const centerShare = counts[centerChoice] / total;
+          const protectedWhiteHighlight = centerTone > 236
+            && centerShare >= .1
+            && centers.some((color, index) =>
+              counts[index] / total >= .12 && luminance(color) < 100,
+            );
 
-          // A line only occupies part of a grid cell. Keep real dark ink instead of
-          // averaging it into the pale fill around it.
+          // Protect a bright center surrounded by dark ink, such as an eye highlight
+          // or the white stripe on a shoe.
+          if (protectedWhiteHighlight) {
+            chosen = centerChoice;
+          } else if (centerTone < 105 && centerShare >= .055) {
+            // A dark line crossing the center of the stitch belongs to this cell.
+            chosen = centerChoice;
+          }
+
+          // Keep dark outlines, but only when they occupy a meaningful part of the
+          // weighted cell. This avoids swallowing nearby white details.
           let darkestCandidate = -1;
           let darkestScore = -1;
           counts.forEach((count, index) => {
             const share = count / total;
             const tone = luminance(centers[index]);
-            if (share >= .07 && tone < 92 && dominantLuminance - tone > 42) {
+            if (!protectedWhiteHighlight && share >= .18 && tone < 92 && dominantLuminance - tone > 42) {
               const score = share * 2 + (92 - tone) / 120;
               if (score > darkestScore) {
                 darkestScore = score;
@@ -1110,6 +1145,12 @@ export default function Home() {
           });
           if (darkestCandidate >= 0) {
             chosen = darkestCandidate;
+          } else if (centerShare >= .08 && centerTone < 229 && dominantLuminance > 220) {
+            // Preserve fine neutral or colored marks on white clothing.
+            chosen = centerChoice;
+          } else if (centerShare >= .07 && centerTone < 224 && centerChroma > .15) {
+            // Centered colored details should not be averaged into their fill.
+            chosen = centerChoice;
           } else if (dominantLuminance > 205) {
             // Preserve small saturated details such as a pink mouth on a white face.
             let accentCandidate = -1;
@@ -1118,7 +1159,7 @@ export default function Home() {
               const share = count / total;
               const tone = luminance(centers[index]);
               const chroma = saturation(centers[index]);
-              if (share >= .07 && tone < 210 && chroma > .16) {
+              if (share >= .13 && tone < 215 && chroma > .14) {
                 const score = share * 2 + chroma * .7 + (210 - tone) / 420;
                 if (score > accentScore) {
                   accentScore = score;
@@ -1308,7 +1349,7 @@ export default function Home() {
               <div className="fidelity-card">
                 <p className="eyebrow">MAXIMUM FIDELITY</p>
                 <h2>自动高清还原</h2>
-                <p>不再限制真实线号，也不需要设置精细度。系统会用 64 × 64 高清网格识别原图主色，并特别保留黑色轮廓与细小彩色线条。</p>
+                <p>不再限制真实线号，也不需要设置精细度。系统会用 80 × 80 高清网格识别原图主色，并特别保留黑色轮廓、高光与细小线条。</p>
               </div>
               <div className="conversion-feature"><span>▦</span><p><b>原图自适应配色</b><small>直接从图片提取主色、阴影和轮廓色。</small></p></div>
               <div className="conversion-feature"><span>○</span><p><b>识别内部白色</b><small>角色、衣服与图案内的白色会保留为白色针脚。</small></p></div>
