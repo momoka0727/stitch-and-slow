@@ -766,7 +766,17 @@ export default function Home() {
 
   const stitchCell = (index: number) => {
     const target = pattern.grid[index];
-    if (target < 0 || stitched.has(index)) return;
+    if (target < 0 || sharedFrom) return;
+    if (stitched.has(index)) {
+      setStitched((current) => {
+        const next = new Set(current);
+        next.delete(index);
+        return next;
+      });
+      setAnimatedIndex(null);
+      setSaveStatus("dirty");
+      return;
+    }
     if (target !== selectedColor) {
       const needed = activeThreads[target];
       const targetNumber = pattern.colors ? target + 1 : palette.indexOf(target) + 1;
@@ -1378,7 +1388,7 @@ export default function Home() {
             </div>
             <aside className="thread-panel">
               <div className="thread-heading"><div><p className="eyebrow">THREAD BOARD</p><h2>配线板</h2></div><span>{palette.length} 色</span></div>
-              <p className="thread-guide">图纸里的编号与每束线上的编号完全相同。先选线束，再绣所有被突出显示的同号格子。</p>
+              <p className="thread-guide">图纸里的编号与每束线上的编号完全相同。先选线束，再绣同号格子；点一下已经绣好的格子可以拆除该针。</p>
               <div className="match-tip" aria-label="图纸编号与配线编号对应示例">
                 <span>图纸格 <b>{pattern.colors ? selectedColor + 1 : palette.indexOf(selectedColor) + 1}</b></span>
                 <i>→</i>
