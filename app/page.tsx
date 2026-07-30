@@ -417,10 +417,13 @@ function CrossCanvas({
               ctx.strokeRect(x + 2, y + 2, cell - 4, cell - 4);
             }
             ctx.fillStyle = isCurrentColor ? shade(color.hex, -28) : "rgba(78, 83, 77, .26)";
-            ctx.font = `${isCurrentColor ? 700 : 600} ${Math.max(9, cell * .42)}px ui-monospace`;
+            const chartLabel = String(chartNumber);
+            const labelScale = chartLabel.length > 1 ? .48 : .58;
+            const labelSize = Math.max(5.2, Math.min(12, cell * labelScale));
+            ctx.font = `${isCurrentColor ? 700 : 600} ${labelSize}px ui-monospace`;
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
-            ctx.fillText(String(chartNumber), x + cell / 2, y + cell / 2);
+            ctx.fillText(chartLabel, x + cell / 2, y + cell / 2, cell * .84);
           }
           return;
         }
