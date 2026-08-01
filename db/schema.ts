@@ -10,12 +10,7 @@ export const stitchProgress = sqliteTable(
     stitchedJson: text("stitched_json").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },
-  (table) => [
-    uniqueIndex("stitch_progress_user_pattern_idx").on(
-      table.userEmail,
-      table.patternId,
-    ),
-  ],
+  (table) => [uniqueIndex("stitch_progress_user_pattern_idx").on(table.userEmail, table.patternId)],
 );
 
 export const sharedProjects = sqliteTable("shared_projects", {

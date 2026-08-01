@@ -7,11 +7,7 @@ export async function GET(request: Request) {
     const id = new URL(request.url).searchParams.get("id")?.slice(0, 80) || "";
     if (!id) return Response.json({ error: "分享编号不能为空" }, { status: 400 });
     const db = getDb();
-    const rows = await db
-      .select()
-      .from(sharedProjects)
-      .where(eq(sharedProjects.id, id))
-      .limit(1);
+    const rows = await db.select().from(sharedProjects).where(eq(sharedProjects.id, id)).limit(1);
     return Response.json({ share: rows[0] || null });
   } catch (error) {
     const message = error instanceof Error ? error.message : "分享暂时无法打开";
@@ -26,8 +22,13 @@ export async function POST(request: Request) {
       recipientEmail?: string;
       pattern?: unknown;
     };
-    const senderName = String(payload.senderName || "").trim().slice(0, 60);
-    const recipientEmail = String(payload.recipientEmail || "").trim().toLowerCase().slice(0, 320);
+    const senderName = String(payload.senderName || "")
+      .trim()
+      .slice(0, 60);
+    const recipientEmail = String(payload.recipientEmail || "")
+      .trim()
+      .toLowerCase()
+      .slice(0, 320);
     if (!senderName || !recipientEmail.includes("@") || !payload.pattern) {
       return Response.json({ error: "分享信息不完整" }, { status: 400 });
     }
