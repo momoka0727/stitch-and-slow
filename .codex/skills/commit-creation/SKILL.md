@@ -1,7 +1,6 @@
 ---
 name: commit-creation
-description: Generates or validates Git commit messages following this repo's Conventional Commits-based format (Japanese summary, bullet body, optional issue number). Use when writing commit messages, generating a commit from staged changes, or when the user asks for commit message help.
-disable-model-invocation: false
+description: Generate, split, and validate Git commits using this repository's Conventional Commits format with concise Chinese summaries and bullet bodies. Use when staging changes, planning multiple commits, creating commits, or writing commit messages.
 ---
 
 # Commit Creation
@@ -16,10 +15,20 @@ disable-model-invocation: false
 
 ### 1. 工作流程
 
-1. **初期信息获取**：并行执行 `git status`（获取分支名）、`git diff --cached`（分析暂存区内容）
-2. **前缀选择**：根据变更内容选择（参见下表）
-3. **消息生成**：`<前缀>: <摘要（50字以内）>` + 项目符号正文（0-4行）
-4. **执行提交**：以 `git commit -m "$(cat <<'EOF'...EOF)"` 格式执行
+1. **检查全部修改**：执行 `git status`、`git diff --name-status` 和 `git diff --stat`。
+2. **先分类再暂存**：按依赖/构建、schema/API、领域工具、页面组件、测试、文档等职责划分文件组，并使用明确路径逐组暂存。
+3. **检查暂存内容**：每次提交前并行执行 `git status` 和 `git diff --cached`，确认暂存区只包含一个职责组。
+4. **前缀选择**：根据该职责组选择前缀（参见下表）。
+5. **消息生成**：`<前缀>: <摘要（50字以内）>` + 项目符号正文（0-4行）。
+6. **执行提交**：创建提交后继续处理下一职责组，直至工作树无遗漏。
+
+### 提交拆分规则
+
+- **禁止**：当修改可以按职责独立分类时，将所有文件放进一个提交。
+- **必须**：依赖、后端契约、领域工具、页面组件、测试和文档等独立关注点分别提交。
+- **必须**：使用明确文件路径暂存，禁止用 `git add .` 混入多个职责组。
+- **必须**：每次提交都应保持逻辑内聚，并尽可能处于可构建、可审查状态。
+- **例外**：只有无法安全拆分的原子跨层变更才可合并；提交正文必须说明不能拆分的原因。
 
 ### 2. 前缀选择
 
@@ -73,7 +82,9 @@ feat：添加两步验证功能
 ## Important Notes
 
 - **必须**：使用 `git diff --cached` 分析暂存区内容（忽略未暂存的更改）
+- **必须**：多职责修改先输出提交分组，再按组逐次暂存和提交
 - **禁止**：模糊的摘要（如“update”，“fix bug”等），禁止仅有无条理的长文
+- **禁止**：为了减少提交次数而把不相关文件合并到同一提交
 - 对于较大的差异，聚焦主要变更点进行总结
 
 ## 运行时注意事项
