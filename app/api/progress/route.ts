@@ -1,22 +1,17 @@
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { stitchProgress } from "../../../db/schema";
-
-function cleanEmail(value: unknown) {
-  const email = typeof value === "string" ? value.trim().toLowerCase() : "";
-  return email.includes("@") && email.length <= 320 ? email : "";
-}
+import { STITCH_LIMITS } from "../../../constants/stitch";
+import { validationError } from "../../../lib/http";
+import { progressQuerySchema, saveProgressRequestSchema } from "../../../lib/validation/stitch";
 
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
-    const userEmail = cleanEmail(url.searchParams.get("user"));
-    const patternId = (url.searchParams.get("pattern") || "").slice(0, 120);
-    const includeAll = url.searchParams.get("all") === "1";
-
-    if (!userEmail) {
-      return Response.json({ error: "user is required" }, { status: 400 });
-    }
+    const query = progressQuerySchema.safeParse(Object.fromEntries(url.searchParams));
+    if (!query.success) return validationError("查询参数不正确", query.error.flatten());
+    const { user: userEmail, pattern: patternId } = query.data;
+    const includeAll = query.data.all === "1";
 
     const db = getDb();
     const rows = includeAll
@@ -25,7 +20,7 @@ export async function GET(request: Request) {
           .from(stitchProgress)
           .where(eq(stitchProgress.userEmail, userEmail))
           .orderBy(desc(stitchProgress.updatedAt))
-          .limit(50)
+          .limit(STITCH_LIMITS.maxProjects)
       : patternId
         ? await db
             .select()
@@ -52,27 +47,19 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const payload = (await request.json()) as {
-      userEmail?: string;
-      patternId?: string;
-      pattern?: unknown;
-      stitched?: unknown;
-    };
-    const userEmail = cleanEmail(payload.userEmail);
-    const patternId = String(payload.patternId || "").slice(0, 120);
-    const stitched = Array.isArray(payload.stitched)
-      ? payload.stitched.filter(Number.isInteger).slice(0, 4096)
-      : [];
+    const payload = saveProgressRequestSchema.safeParse(await request.json().catch(() => null));
+    if (!payload.success) return validationError("保存信息不完整", payload.error.flatten());
+    const { userEmail, patternId, pattern, stitched } = payload.data;
 
-    if (!userEmail || !patternId || !payload.pattern) {
-      return Response.json({ error: "保存信息不完整" }, { status: 400 });
+    const patternJson = JSON.stringify(pattern);
+    if (new TextEncoder().encode(patternJson).byteLength > STITCH_LIMITS.storedPatternBytes) {
+      return Response.json({ error: "图纸数据过大" }, { status: 413 });
     }
-
     const row = {
       id: `${userEmail}:${patternId}`,
       userEmail,
       patternId,
-      patternJson: JSON.stringify(payload.pattern).slice(0, 500_000),
+      patternJson,
       stitchedJson: JSON.stringify(stitched),
       updatedAt: Date.now(),
     };

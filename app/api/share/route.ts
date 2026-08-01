@@ -1,11 +1,15 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { sharedProjects } from "../../../db/schema";
+import { STITCH_LIMITS } from "../../../constants/stitch";
+import { validationError } from "../../../lib/http";
+import { createShareRequestSchema, shareQuerySchema } from "../../../lib/validation/stitch";
 
 export async function GET(request: Request) {
   try {
-    const id = new URL(request.url).searchParams.get("id")?.slice(0, 80) || "";
-    if (!id) return Response.json({ error: "分享编号不能为空" }, { status: 400 });
+    const query = shareQuerySchema.safeParse(Object.fromEntries(new URL(request.url).searchParams));
+    if (!query.success) return validationError("分享编号不正确", query.error.flatten());
+    const { id } = query.data;
     const db = getDb();
     const rows = await db.select().from(sharedProjects).where(eq(sharedProjects.id, id)).limit(1);
     return Response.json({ share: rows[0] || null });
@@ -17,27 +21,19 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const payload = (await request.json()) as {
-      senderName?: string;
-      recipientEmail?: string;
-      pattern?: unknown;
-    };
-    const senderName = String(payload.senderName || "")
-      .trim()
-      .slice(0, 60);
-    const recipientEmail = String(payload.recipientEmail || "")
-      .trim()
-      .toLowerCase()
-      .slice(0, 320);
-    if (!senderName || !recipientEmail.includes("@") || !payload.pattern) {
-      return Response.json({ error: "分享信息不完整" }, { status: 400 });
+    const payload = createShareRequestSchema.safeParse(await request.json().catch(() => null));
+    if (!payload.success) return validationError("分享信息不完整", payload.error.flatten());
+    const { senderName, recipientEmail, pattern } = payload.data;
+    const patternJson = JSON.stringify(pattern);
+    if (new TextEncoder().encode(patternJson).byteLength > STITCH_LIMITS.storedPatternBytes) {
+      return Response.json({ error: "图纸数据过大" }, { status: 413 });
     }
     const id = crypto.randomUUID().replaceAll("-", "").slice(0, 20);
     const row = {
       id,
       senderName,
       recipientEmail,
-      patternJson: JSON.stringify(payload.pattern).slice(0, 500_000),
+      patternJson,
       createdAt: Date.now(),
     };
     const db = getDb();
