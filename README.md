@@ -15,9 +15,9 @@ a mise-managed Node.js environment and a pnpm workspace.
 ```bash
 mise install
 vp env off
-mise exec -- vp install
+mise exec -- pnpm install
 cp .dev.vars.example .dev.vars
-mise exec -- vp run dev
+mise exec -- pnpm run dev
 ```
 
 Fill `.dev.vars` with a random secret of at least 32 bytes and the Google OAuth
@@ -37,10 +37,10 @@ Create a Google OAuth Web client and register this authorized redirect URI:
 http://localhost:3000/api/auth/callback/google
 ```
 
-For production, set `BETTER_AUTH_URL` to the canonical HTTPS origin, register
-`https://<domain>/api/auth/callback/google`, and inject all four bindings through
-the hosting secret manager or `wrangler secret put`. Do not put secrets in
-`wrangler.cloudflare.jsonc`.
+For production, set `BETTER_AUTH_URL` to the canonical Cloudflare HTTPS origin,
+register `https://<domain>/api/auth/callback/google`, and inject all four values
+with `wrangler secret put --config wrangler.cloudflare.jsonc`. Do not put secret
+values in `wrangler.cloudflare.jsonc`.
 
 ## Authentication and persistence
 
@@ -61,23 +61,39 @@ uses the new authentication routes. The current schema migration is
 Before the first local login, apply migrations with:
 
 ```bash
-mise exec -- vp run db:migrate:local
+mise exec -- pnpm run db:migrate:local
 ```
 
 The `dev` and `db:migrate:local` scripts both use `wrangler.cloudflare.jsonc`,
 so the development server and migration command address the same local D1
 database.
 
+## Production deployment
+
+Cloudflare Workers is the only supported production target. Configure Wrangler
+authentication and all required secrets, then run:
+
+```bash
+mise exec -- pnpm run deploy
+```
+
+The deployment command builds with `wrangler.cloudflare.jsonc`, applies pending
+migrations to the remote D1 database, and deploys the generated Worker in that
+order. Do not deploy code that expects a new schema without completing the
+migration.
+
 ## Useful commands
 
-- `mise exec -- vp run dev`: start local development
-- `mise exec -- vp check`: run format, lint, and type checks
-- `mise exec -- vp test --run`: run tests once
-- `mise exec -- vp run build`: produce the Sites-compatible vinext build
-- `mise exec -- vp run build:cloudflare`: build with the production Wrangler config
-- `mise exec -- vp run db:generate`: generate a Drizzle migration after schema changes
-- `mise exec -- vp run db:migrate:local`: apply pending migrations to the local development D1
-- `mise exec -- vp run types:cloudflare`: regenerate Worker binding types
+- `mise exec -- pnpm run dev`: start local development with the Wrangler config
+- `mise exec -- pnpm run check`: run format, lint, and type checks
+- `mise exec -- pnpm run test`: run tests once
+- `mise exec -- pnpm run build`: build the Cloudflare Worker
+- `mise exec -- pnpm run deploy`: build, migrate production D1, and deploy to Cloudflare
+- `mise exec -- pnpm run deploy:dry-run`: build and validate the deployable Worker locally
+- `mise exec -- pnpm run db:generate`: generate a Drizzle migration after schema changes
+- `mise exec -- pnpm run db:migrate:local`: apply pending migrations to local D1
+- `mise exec -- pnpm run db:migrate:remote`: apply pending migrations to production D1
+- `mise exec -- pnpm run types:cloudflare`: regenerate Worker binding types
 
 ## Project shape
 
@@ -85,7 +101,7 @@ database.
 - `lib/auth.ts` owns server authentication configuration and session lookup.
 - `lib/auth-client.ts` owns the browser authentication client.
 - `db/schema.ts` contains the Better Auth and application D1 schema.
-- `.openai/hosting.json` declares the Sites D1 binding.
+- `wrangler.cloudflare.jsonc` declares the production Worker and D1 binding.
 - `drizzle/` contains deployment migrations.
 
 See `.codex/docs/` for the architecture, API, page, schema, and toolchain

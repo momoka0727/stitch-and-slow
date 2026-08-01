@@ -16,14 +16,14 @@ Use `vp env off` once so Vite+ uses the mise-managed runtime.
 
 ```bash
 mise install
-mise exec -- vp install
+mise exec -- pnpm install
 cp .dev.vars.example .dev.vars
 ```
 
-Required runtime bindings are `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`,
+Required runtime values are `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`,
 `GOOGLE_CLIENT_ID`, and `GOOGLE_CLIENT_SECRET`. `.dev.vars*` is ignored except
-for the committed example. Production values belong in the hosting secret
-manager, never Wrangler config or Git. Their names are declared under
+for the committed example. Production values belong in Cloudflare secrets,
+never Wrangler config or Git. Their names are declared under
 `wrangler.cloudflare.jsonc#secrets.required` so local development, generated
 types, and deployment validate the same contract without storing their values.
 
@@ -31,11 +31,9 @@ types, and deployment validate the same contract without storing their values.
 `<origin>/api/auth/callback/google` in the Google OAuth client. Apply every D1
 migration before deploying code that expects the new schema.
 
-The `dev` and `db:migrate:local` package scripts both set
-`CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH=./wrangler.cloudflare.jsonc` (directly or
-through Wrangler's `--config` option). Keep them aligned: otherwise the Vite
-plugin falls back to the inline placeholder D1 and authentication queries will
-not see migrations applied to the configured local database.
+`vite.config.ts`, the D1 migration scripts, type generation, and deployment all
+use `wrangler.cloudflare.jsonc`. Keep those paths aligned so local development,
+production builds, and migration commands address the intended D1 binding.
 
 Keep `wrangler.cloudflare.jsonc#compatibility_date` at or below the newest date
 supported by the repository-pinned workerd runtime. Regenerate
@@ -43,37 +41,42 @@ supported by the repository-pinned workerd runtime. Regenerate
 
 The Cloudflare Vite plugin writes a preview-only `dist/server/.dev.vars` so its
 local preview can reproduce bindings. `dist/` is ignored and `.dev.vars` is
-excluded from Worker modules and public assets; deploy through the configured
-Cloudflare/Sites workflow rather than publishing the server directory as raw
-files.
+excluded from Worker modules and public assets; deploy through Wrangler rather
+than publishing the server directory as raw files.
 
 ## Commands
 
 | Goal | Command |
 | --- | --- |
-| Start development | `mise exec -- vp run dev` |
-| Run static checks | `mise exec -- vp check` |
-| Run tests | `mise exec -- vp test --run` |
-| Apply formatting | `mise exec -- vp fmt` |
-| Lint only | `mise exec -- vp lint` |
-| Build for Sites | `mise exec -- vp run build` |
-| Build with Wrangler config | `mise exec -- vp run build:cloudflare` |
-| Generate Drizzle migrations | `mise exec -- vp run db:generate` |
-| Apply local D1 migrations | `mise exec -- vp run db:migrate:local` |
-| Regenerate Worker types | `mise exec -- vp run types:cloudflare` |
+| Start development | `mise exec -- pnpm run dev` |
+| Run static checks | `mise exec -- pnpm run check` |
+| Run tests | `mise exec -- pnpm run test` |
+| Apply formatting | `mise exec -- pnpm run format` |
+| Lint only | `mise exec -- pnpm run lint` |
+| Build Cloudflare Worker | `mise exec -- pnpm run build` |
+| Deploy Cloudflare Worker | `mise exec -- pnpm run deploy` |
+| Validate deployable Worker | `mise exec -- pnpm run deploy:dry-run` |
+| Generate Drizzle migrations | `mise exec -- pnpm run db:generate` |
+| Apply local D1 migrations | `mise exec -- pnpm run db:migrate:local` |
+| Apply production D1 migrations | `mise exec -- pnpm run db:migrate:remote` |
+| Regenerate Worker types | `mise exec -- pnpm run types:cloudflare` |
 
-The `sites()` build plugin must continue packaging `.openai/hosting.json` and
-the complete `drizzle/` directory. Update the production-build test when a new
-required migration is added.
+Cloudflare Workers is the only production target. The Vite build writes
+`dist/server/wrangler.json` and `.wrangler/deploy/config.json`; the latter makes
+plain `wrangler deploy` consume the generated Worker instead of rebundling the
+vinext source entry. `pnpm run deploy` validates the build first, then applies
+remote D1 migrations immediately before deploying that artifact. Do not pass
+the source Wrangler config to the final deploy command, add a second hosting
+control plane, or package platform-specific metadata into `dist/`.
 
 ## Dependency updates
 
 Use pnpm through the repository-managed command surface:
 
 ```bash
-mise exec -- vp add <package>
-mise exec -- vp remove <package>
-mise exec -- vp install
+mise exec -- pnpm add <package>
+mise exec -- pnpm remove <package>
+mise exec -- pnpm install
 ```
 
 Review `package.json`, `pnpm-workspace.yaml`, and `pnpm-lock.yaml` together.
