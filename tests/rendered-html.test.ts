@@ -55,25 +55,34 @@ describe("production build", () => {
     expect(html).toContain("把快生活，绣得慢一点。");
   });
 
-  test("packages Sites metadata and D1 migrations", async () => {
-    const sourceHosting = new URL("../.openai/hosting.json", import.meta.url);
-    const packagedHosting = new URL("../dist/.openai/hosting.json", import.meta.url);
-    const packagedAuthMigration = new URL(
-      "../dist/.openai/drizzle/0002_skinny_sleepwalker.sql",
-      import.meta.url,
-    );
+  test("uses the Cloudflare Worker and D1 migration configuration", async () => {
+    const packagedWranglerConfig = new URL("../dist/server/wrangler.json", import.meta.url);
+    const sourceAuthMigration = new URL("../drizzle/0002_skinny_sleepwalker.sql", import.meta.url);
+    const packagedSitesMetadata = new URL("../dist/.openai/hosting.json", import.meta.url);
 
-    await expect(access(packagedHosting)).resolves.toBeUndefined();
-    await expect(access(packagedAuthMigration)).resolves.toBeUndefined();
+    await expect(access(sourceAuthMigration)).resolves.toBeUndefined();
+    await expect(access(packagedWranglerConfig)).resolves.toBeUndefined();
+    await expect(access(packagedSitesMetadata)).rejects.toMatchObject({ code: "ENOENT" });
 
-    const [source, packaged] = await Promise.all([
-      readFile(sourceHosting, "utf8"),
-      readFile(packagedHosting, "utf8"),
-    ]);
-    const hosting = JSON.parse(packaged) as {
-      d1: string | null;
+    const config = JSON.parse(await readFile(packagedWranglerConfig, "utf8")) as {
+      name: string;
+      main: string;
+      assets: { directory: string };
+      d1_databases: Array<{
+        binding: string;
+        database_id: string;
+        migrations_dir: string;
+      }>;
     };
-    expect(packaged).toBe(source);
-    expect(hosting.d1).toBe("DB");
+    expect(config.name).toBe("stitch-and-slow");
+    expect(config.main).toBe("index.js");
+    expect(config.assets.directory).toBe("../client");
+    expect(config.d1_databases).toContainEqual(
+      expect.objectContaining({
+        binding: "DB",
+        database_id: "a4399cde-c60d-4279-b3d0-51a3be6f4591",
+        migrations_dir: "../../drizzle",
+      }),
+    );
   });
 });
