@@ -58,13 +58,13 @@ describe("production build", () => {
   test("packages Sites metadata and D1 migrations", async () => {
     const sourceHosting = new URL("../.openai/hosting.json", import.meta.url);
     const packagedHosting = new URL("../dist/.openai/hosting.json", import.meta.url);
-    const packagedMigration = new URL(
-      "../dist/.openai/drizzle/0001_wonderful_spencer_smythe.sql",
+    const packagedAuthMigration = new URL(
+      "../dist/.openai/drizzle/0002_skinny_sleepwalker.sql",
       import.meta.url,
     );
 
     await expect(access(packagedHosting)).resolves.toBeUndefined();
-    await expect(access(packagedMigration)).resolves.toBeUndefined();
+    await expect(access(packagedAuthMigration)).resolves.toBeUndefined();
 
     const [source, packaged] = await Promise.all([
       readFile(sourceHosting, "utf8"),
