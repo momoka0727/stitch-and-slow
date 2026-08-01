@@ -2,8 +2,16 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "stitch-and-slow",
   "main": "./worker/index.ts",
-  "compatibility_date": "2026-07-30",
+  "compatibility_date": "2026-07-29",
   "compatibility_flags": ["nodejs_compat"],
+  "secrets": {
+    "required": [
+      "BETTER_AUTH_URL",
+      "BETTER_AUTH_SECRET",
+      "GOOGLE_CLIENT_ID",
+      "GOOGLE_CLIENT_SECRET",
+    ],
+  },
   "d1_databases": [
     {
       "binding": "DB",
