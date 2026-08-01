@@ -1,29 +1,32 @@
-# vinext-starter
+# stitch-and-slow
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+A cross-stitch pattern workspace built with React, vinext, Cloudflare D1, and
+Drizzle. Development uses Vite+ on top of a mise-managed Node.js environment
+and pnpm workspace.
 
 ## Prerequisites
 
-- Node.js `>=22.13.0`
+- [mise](https://mise.jdx.dev/)
+- [Vite+](https://viteplus.dev/guide/)
 
 ## Quick Start
 
 ```bash
-npm install
-npm run dev
-npm run build
+mise install
+vp env off
+mise exec -- vp install
+mise exec -- vp run dev
 ```
 
-This starter does not use `wrangler.jsonc`.
+`vp env off` is a one-time user setting that keeps mise authoritative for the
+Node.js runtime. Vite+ still selects the repository-pinned pnpm version.
 
 ## Included Shape
 
 - edit site code under `app/`
 - `.openai/hosting.json` declares optional Sites D1 and R2 bindings
 - `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
+- `db/schema.ts` contains the D1 schema
 - `examples/d1/` contains an optional D1 example surface
 - `drizzle.config.ts` supports local migration generation when needed
 
@@ -48,8 +51,7 @@ export default async function Home() {
   const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
   const fullName =
     encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
+    requestHeaders.get("oai-authenticated-user-full-name-encoding") === "percent-encoded-utf-8"
       ? decodeURIComponent(encodedFullName)
       : null;
 
@@ -87,12 +89,15 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 
 ## Useful Commands
 
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
+- `mise exec -- vp run dev`: start local development through the vinext framework task
+- `mise exec -- vp run build`: produce the Sites-compatible vinext build
+- `mise exec -- vp check`: format-check, lint, and type-check
+- `mise exec -- vp test --run`: build and run the production-render smoke tests once
+- `mise exec -- vp run build:cloudflare`: build with the production Wrangler config
+- `mise exec -- vp run db:generate`: generate Drizzle migrations after schema changes
 
 ## Learn More
 
+- [Vite+ Documentation](https://viteplus.dev/guide/)
 - [vinext Documentation](https://github.com/cloudflare/vinext)
 - [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)

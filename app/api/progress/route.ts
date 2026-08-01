@@ -27,22 +27,19 @@ export async function GET(request: Request) {
           .orderBy(desc(stitchProgress.updatedAt))
           .limit(50)
       : patternId
-      ? await db
-          .select()
-          .from(stitchProgress)
-          .where(
-            and(
-              eq(stitchProgress.userEmail, userEmail),
-              eq(stitchProgress.patternId, patternId),
-            ),
-          )
-          .limit(1)
-      : await db
-          .select()
-          .from(stitchProgress)
-          .where(eq(stitchProgress.userEmail, userEmail))
-          .orderBy(desc(stitchProgress.updatedAt))
-          .limit(1);
+        ? await db
+            .select()
+            .from(stitchProgress)
+            .where(
+              and(eq(stitchProgress.userEmail, userEmail), eq(stitchProgress.patternId, patternId)),
+            )
+            .limit(1)
+        : await db
+            .select()
+            .from(stitchProgress)
+            .where(eq(stitchProgress.userEmail, userEmail))
+            .orderBy(desc(stitchProgress.updatedAt))
+            .limit(1);
 
     return includeAll
       ? Response.json({ progresses: rows })

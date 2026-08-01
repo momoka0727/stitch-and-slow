@@ -18,7 +18,8 @@ const display = ZCOOL_XiaoWei({
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
   const host = requestHeaders.get("host") || "localhost:3000";
-  const protocol = requestHeaders.get("x-forwarded-proto") || (host.startsWith("localhost") ? "http" : "https");
+  const protocol =
+    requestHeaders.get("x-forwarded-proto") || (host.startsWith("localhost") ? "http" : "https");
   const origin = `${protocol}://${host}`;
   const title = "针迹小屋 · 图片转十字绣图纸";
   const description = "上传图片生成十字绣图纸，智能匹配 DMC 线号，也可从原创图纸库直接开始。";
