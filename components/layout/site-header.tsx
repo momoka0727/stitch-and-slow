@@ -1,7 +1,8 @@
 import type { WorkspaceAction, WorkspaceView } from "../pages/types";
 
 type SiteHeaderProps = {
-  user: string;
+  user: { name: string; email: string; image?: string | null } | null;
+  authPending: boolean;
   view: WorkspaceView;
   onNavigate: (action: WorkspaceAction) => void;
   onHome: () => void;
@@ -11,6 +12,7 @@ type SiteHeaderProps = {
 
 export function SiteHeader({
   user,
+  authPending,
   view,
   onNavigate,
   onHome,
@@ -50,12 +52,16 @@ export function SiteHeader({
       </nav>
       {user ? (
         <div className="user-menu">
-          <span>{user.slice(0, 1).toUpperCase()}</span>
+          {user.image ? (
+            <img src={user.image} alt="" referrerPolicy="no-referrer" />
+          ) : (
+            <span>{(user.name || user.email).slice(0, 1).toUpperCase()}</span>
+          )}
           <button onClick={onSignOut}>退出</button>
         </div>
       ) : (
-        <button className="header-login" onClick={onLogin}>
-          登录 / 注册
+        <button className="header-login" onClick={onLogin} disabled={authPending}>
+          {authPending ? "正在确认…" : "使用 Google 登录"}
         </button>
       )}
     </header>

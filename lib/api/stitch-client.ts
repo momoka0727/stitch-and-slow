@@ -11,21 +11,20 @@ import {
   type Pattern,
 } from "../validation/stitch";
 
-export async function getProgress(user: string, patternId?: string) {
-  const query = new URLSearchParams({ user });
+export async function getProgress(patternId?: string) {
+  const query = new URLSearchParams();
   if (patternId) query.set("pattern", patternId);
-  const response = await fetch(`${API_PATHS.progress}?${query}`);
+  const response = await fetch(`${API_PATHS.progress}${query.size ? `?${query}` : ""}`);
   return (await readJson(response, progressResponseSchema)).progress;
 }
 
-export async function getProjects(user: string) {
-  const query = new URLSearchParams({ user, all: "1" });
+export async function getProjects() {
+  const query = new URLSearchParams({ all: "1" });
   const response = await fetch(`${API_PATHS.progress}?${query}`);
   return (await readJson(response, progressesResponseSchema)).progresses;
 }
 
 export async function saveProgress(input: {
-  userEmail: string;
   patternId: string;
   pattern: Pattern;
   stitched: number[];

@@ -3,11 +3,6 @@ import { STITCH_LIMITS } from "../../constants/stitch";
 
 export const emailSchema = z.string().trim().toLowerCase().email().max(STITCH_LIMITS.emailLength);
 export const senderNameSchema = z.string().trim().min(1).max(STITCH_LIMITS.senderNameLength);
-export const authCredentialsSchema = z.object({
-  email: emailSchema,
-  password: z.string().min(STITCH_LIMITS.passwordMinLength).max(256),
-});
-
 export const threadColorSchema = z.object({
   code: z.string().min(1).max(24),
   name: z.string().min(1).max(80),
@@ -72,19 +67,20 @@ export const savedProjectRowSchema = z.object({
   updatedAt: z.number().int().nonnegative(),
 });
 
-export const progressQuerySchema = z.object({
-  user: emailSchema,
-  pattern: z.string().max(STITCH_LIMITS.patternIdLength).optional().default(""),
-  all: z.enum(["0", "1"]).optional().default("0"),
-});
+export const progressQuerySchema = z
+  .object({
+    pattern: z.string().max(STITCH_LIMITS.patternIdLength).optional().default(""),
+    all: z.enum(["0", "1"]).optional().default("0"),
+  })
+  .strict();
 
 export const saveProgressRequestSchema = z
   .object({
-    userEmail: emailSchema,
     patternId: z.string().min(1).max(STITCH_LIMITS.patternIdLength),
     pattern: patternSchema,
     stitched: stitchedIndicesSchema,
   })
+  .strict()
   .superRefine(({ pattern, stitched }, context) => {
     if (stitched.some((index) => index >= pattern.grid.length || pattern.grid[index] < 0)) {
       context.addIssue({ code: "custom", path: ["stitched"], message: "进度包含无效针脚" });
@@ -114,7 +110,6 @@ export const createShareRequestSchema = z.object({
 export const shareRowSchema = z.object({
   id: z.string().min(1),
   senderName: z.string().min(1),
-  recipientEmail: emailSchema,
   patternJson: z.string().min(1).max(STITCH_LIMITS.storedPatternBytes),
   createdAt: z.number().int().nonnegative(),
 });

@@ -3,7 +3,6 @@ export const STITCH_LIMITS = {
   patternIdLength: 120,
   patternNameLength: 80,
   senderNameLength: 60,
-  passwordMinLength: 6,
   shareIdLength: 80,
   storedPatternBytes: 500_000,
   maxGridCells: 80 * 80,
@@ -56,10 +55,6 @@ export const IMAGE_CONVERSION = {
   backgroundReachabilityThreshold: 0.43,
   dominantShareThreshold: 0.78,
   lowSaturationThreshold: 0.09,
-} as const;
-
-export const STORAGE_KEYS = {
-  userEmail: "stitch-user",
 } as const;
 
 export const API_PATHS = {
