@@ -30,7 +30,6 @@ describe("stitch validation contracts", () => {
     const pattern = PATTERNS[0];
     const backgroundIndex = pattern.grid.findIndex((value) => value < 0);
     const result = saveProgressRequestSchema.safeParse({
-      userEmail: "stitcher@example.com",
       patternId: pattern.id,
       pattern,
       stitched: [backgroundIndex],
@@ -38,10 +37,17 @@ describe("stitch validation contracts", () => {
     expect(result.success).toBe(false);
   });
 
-  test("normalizes valid query emails and rejects malformed addresses", () => {
-    const valid = progressQuerySchema.parse({ user: "  MAKER@Example.com " });
-    expect(valid.user).toBe("maker@example.com");
-    expect(progressQuerySchema.safeParse({ user: "not-an-email" }).success).toBe(false);
+  test("does not accept a client-supplied progress owner", () => {
+    expect(progressQuerySchema.parse({ all: "1" })).toEqual({ pattern: "", all: "1" });
+    expect(progressQuerySchema.safeParse({ user: "maker@example.com" }).success).toBe(false);
+    expect(
+      saveProgressRequestSchema.safeParse({
+        userEmail: "maker@example.com",
+        patternId: PATTERNS[0].id,
+        pattern: PATTERNS[0],
+        stitched: [],
+      }).success,
+    ).toBe(false);
   });
 
   test("validates share payloads and untrusted stored JSON", () => {

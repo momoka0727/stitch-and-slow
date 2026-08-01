@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
+    "dev": "CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH=./wrangler.cloudflare.jsonc WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev",
     "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
     "build:cloudflare": "CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH=./wrangler.cloudflare.jsonc WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
     "deploy:cloudflare": "vp run build:cloudflare && WRANGLER_LOG_PATH=.wrangler/wrangler.log wrangler deploy",
@@ -16,9 +16,11 @@
     "format:check": "vp fmt --check",
     "types:cloudflare": "WRANGLER_LOG_PATH=.wrangler/wrangler.log wrangler types worker-configuration.d.ts --config wrangler.cloudflare.jsonc",
     "types:cloudflare:check": "WRANGLER_LOG_PATH=.wrangler/wrangler.log wrangler types worker-configuration.d.ts --config wrangler.cloudflare.jsonc --check",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "db:migrate:local": "WRANGLER_LOG_PATH=.wrangler/wrangler.log wrangler d1 migrations apply DB --local --config wrangler.cloudflare.jsonc"
   },
   "dependencies": {
+    "better-auth": "^1.6.25",
     "drizzle-orm": "0.45.2",
     "next": "16.2.6",
     "react": "19.2.6",

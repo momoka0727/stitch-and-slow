@@ -1,37 +1,45 @@
 # API contracts
 
+## Authentication
+
+Better Auth owns `/api/auth/*`. The browser starts Google sign-in through the
+Better Auth client, Google returns to `/api/auth/callback/google`, and the server
+sets an HttpOnly session cookie. `GET /api/auth/get-session` is the only source
+of browser identity state; email/password registration is disabled.
+
+Protected routes call `getAuthenticatedUser(request)` and derive ownership from
+the verified session `user.id`. They never accept `email`, `userEmail`, or
+`userId` as an ownership input. Missing or expired sessions return `401`.
+
 ## Shared validation
 
 `lib/validation/stitch.ts` is the source of truth for browser and server data.
-Types such as `Pattern`, `ThreadColor`, and `SavedProjectRow` are inferred from
-Zod schemas rather than duplicated by hand.
+The browser validates outgoing payloads and incoming JSON. API routes validate
+query parameters and request bodies before accessing D1. Persisted JSON is
+validated again before it is restored into UI state.
 
-The browser API client in `lib/api/stitch-client.ts` validates outgoing payloads
-and incoming JSON. API routes validate query parameters and request bodies
-before accessing D1. Persisted `patternJson` and `stitchedJson` are parsed and
-validated again when restored.
+## Progress and projects
 
-## Progress
+- `GET /api/progress?pattern=<id>` returns the signed-in user's matching project.
+- `GET /api/progress?all=1` returns up to the configured project limit, most
+  recently updated first.
+- `GET /api/progress` returns the most recently updated project.
+- `POST /api/progress` accepts `patternId`, a validated `pattern`, and validated
+  `stitched` indices. It atomically upserts the row identified by the session
+  user and pattern id.
 
-- `GET /api/progress?user=<email>&pattern=<id>` returns one matching progress.
-- `GET /api/progress?user=<email>&all=1` returns up to the configured project
-  limit, most recently updated first.
-- `POST /api/progress` accepts a validated email, pattern id, complete pattern,
-  and active-cell stitch indices.
+Unknown query/body fields are rejected. In particular, a forged owner field
+returns `400` rather than influencing ownership. Pattern payloads over the byte
+limit return `413`. Unexpected storage failures return a generic `500` without
+leaking internal error messages.
 
 ## Sharing
 
-- `GET /api/share?id=<id>` returns one shared project or `null`.
-- `POST /api/share` accepts a sender name, recipient email, and validated
-  pattern.
+- `GET /api/share?id=<opaque-id>` remains public so existing share links work.
+  Its response only includes `id`, `senderName`, `patternJson`, and `createdAt`;
+  recipient email and owner identity are never exposed.
+- `POST /api/share` requires a valid session and stores the session user as the
+  owner. It accepts a sender name, recipient email, and validated pattern.
 
-Malformed query/body data returns `400`. A serialized pattern that exceeds the
-configured storage limit returns `413`; JSON is never truncated before being
-stored. Unexpected storage failures return `500`.
-
-## Known identity boundary
-
-The current prototype associates progress with the email supplied by the
-browser. This is validation, not authentication. A production identity upgrade
-must derive the user identity from a trusted server-side session or signed
-request context rather than query/body fields.
+Malformed query/body data returns `400`; unauthenticated creation returns `401`;
+oversized pattern JSON returns `413`.

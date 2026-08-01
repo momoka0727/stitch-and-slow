@@ -1,7 +1,7 @@
 "use client";
 
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { STITCH_LIMITS, STITCH_TIMINGS, STORAGE_KEYS } from "../constants/stitch";
+import { STITCH_LIMITS, STITCH_TIMINGS } from "../constants/stitch";
 import { PATTERNS } from "../constants/patterns";
 import { THREADS } from "../constants/threads";
 import {
@@ -20,6 +20,7 @@ import {
 } from "../lib/validation/stitch";
 import { downloadPatternImage } from "../utils/download-pattern";
 import { convertImageToPattern } from "../utils/image-conversion";
+import { authClient } from "../lib/auth-client";
 import { SiteFooter } from "./layout/site-footer";
 import { SiteHeader } from "./layout/site-header";
 import { AuthModal } from "./modals/auth-modal";
@@ -32,7 +33,9 @@ import { UploadPage } from "./pages/upload-page";
 import { CrossCanvas } from "./pattern/cross-canvas";
 
 export function StitchApp() {
-  const [user, setUser] = useState("");
+  const { data: authSession, isPending: authPending } = authClient.useSession();
+  const user = authSession?.user ?? null;
+  const userId = user?.id ?? "";
   const [authOpen, setAuthOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<"upload" | "gallery" | "studio" | "projects">(
     "projects",
@@ -65,8 +68,6 @@ export function StitchApp() {
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEYS.userEmail);
-    if (saved) setUser(saved);
     const shareId = new URLSearchParams(window.location.search).get("share");
     if (shareId) {
       void getShare(shareId)
@@ -157,29 +158,29 @@ export function StitchApp() {
   const loadSavedProgress = async (next: Pattern) => {
     if (!user) return;
     try {
-      const progress = await getProgress(user, next.id);
+      const progress = await getProgress(next.id);
       applySavedProgress(progress, next);
     } catch {
       // The selected pattern remains usable even if cloud progress is unavailable.
     }
   };
 
-  const resumeLatest = async (email = user) => {
+  const resumeLatest = async () => {
     setView("studio");
-    if (!email) return;
+    if (!user) return;
     try {
-      const progress = await getProgress(email);
+      const progress = await getProgress();
       if (applySavedProgress(progress)) showToast("已载入上次保存的进度");
     } catch {
       // Start with the current pattern if no saved project can be loaded.
     }
   };
 
-  const loadProjects = async (email = user) => {
-    if (!email) return;
+  const loadProjects = async () => {
+    if (!user) return;
     setProjectsLoading(true);
     try {
-      setProjects(await getProjects(email));
+      setProjects(await getProjects());
     } catch {
       showToast("作品库暂时无法载入");
     } finally {
@@ -207,6 +208,20 @@ export function StitchApp() {
       setAuthOpen(true);
     }
   };
+
+  useEffect(() => {
+    if (authPending || !userId) return;
+    const url = new URL(window.location.href);
+    const requestedView = url.searchParams.get("view");
+    if (!requestedView || !["upload", "gallery", "studio", "projects"].includes(requestedView)) {
+      return;
+    }
+    url.searchParams.delete("view");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+    requireUser(requestedView as "upload" | "gallery" | "studio" | "projects");
+    // The callback query is consumed once; rerenders cannot repeat this navigation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authPending, userId]);
 
   const openPattern = (next: Pattern) => {
     const preparedPattern = {
@@ -342,7 +357,6 @@ export function StitchApp() {
       setSaveStatus("saving");
       try {
         const result = await saveProgressRequest({
-          userEmail: user,
           patternId: patternToSave.id,
           pattern: patternToSave,
           stitched: Array.from(stitchesToSave),
@@ -456,9 +470,9 @@ export function StitchApp() {
     }
   };
 
-  const signOut = () => {
-    localStorage.removeItem(STORAGE_KEYS.userEmail);
-    setUser("");
+  const signOut = async () => {
+    await authClient.signOut();
+    setProjects([]);
     setView("home");
   };
 
@@ -466,11 +480,15 @@ export function StitchApp() {
     <main>
       <SiteHeader
         user={user}
+        authPending={authPending}
         view={view}
         onNavigate={requireUser}
         onHome={() => setView("home")}
-        onLogin={() => setAuthOpen(true)}
-        onSignOut={signOut}
+        onLogin={() => {
+          setPendingAction("projects");
+          setAuthOpen(true);
+        }}
+        onSignOut={() => void signOut()}
       />
 
       {view === "home" && (
@@ -546,16 +564,8 @@ export function StitchApp() {
       )}
       {authOpen && (
         <AuthModal
+          callbackURL={`/?view=${encodeURIComponent(pendingAction)}`}
           onClose={() => setAuthOpen(false)}
-          onSuccess={(email) => {
-            setUser(email);
-            setAuthOpen(false);
-            if (pendingAction === "studio") void resumeLatest(email);
-            else if (pendingAction === "projects") {
-              setView("projects");
-              void loadProjects(email);
-            } else setView(pendingAction);
-          }}
         />
       )}
       {toast && <div className="toast">{toast}</div>}
