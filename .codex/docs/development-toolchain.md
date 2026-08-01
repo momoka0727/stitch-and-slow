@@ -2,83 +2,78 @@
 
 ## Ownership
 
-- mise owns the Node.js and pnpm runtime versions declared in `mise.toml`.
-- pnpm is the only package manager. `pnpm-lock.yaml` is the only dependency
-  lockfile.
-- Vite+ provides the project command surface, dependency delegation, formatting,
-  linting, type-checking, and Vitest.
-- vinext remains the Next.js-compatible framework layer. Its `dev`, `build`,
-  and `start` commands run through `vp run` package tasks.
+- mise owns the Node.js and pnpm versions in `mise.toml`.
+- pnpm is the only package manager; `pnpm-lock.yaml` is the only lockfile.
+- Vite+ provides formatting, linting, type checking, and Vitest.
+- vinext supplies the Next.js-compatible application and Worker build.
+- Drizzle owns D1 schema and migration generation.
+- Better Auth owns Google OIDC, session cookies, account linking, and auth
+  persistence.
 
-Vite+'s global runtime shims should use system-first mode so they do not replace
-mise:
+Use `vp env off` once so Vite+ uses the mise-managed runtime.
 
-```bash
-vp env off
-```
-
-## Bootstrap
+## Bootstrap and auth configuration
 
 ```bash
 mise install
 mise exec -- vp install
+cp .dev.vars.example .dev.vars
 ```
 
-Vite+ reads the pinned pnpm version from `package.json#devEngines` and delegates
-dependency operations to pnpm.
+Required runtime bindings are `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET`,
+`GOOGLE_CLIENT_ID`, and `GOOGLE_CLIENT_SECRET`. `.dev.vars*` is ignored except
+for the committed example. Production values belong in the hosting secret
+manager, never Wrangler config or Git. Their names are declared under
+`wrangler.cloudflare.jsonc#secrets.required` so local development, generated
+types, and deployment validate the same contract without storing their values.
+
+`BETTER_AUTH_URL` must be the canonical origin. Register
+`<origin>/api/auth/callback/google` in the Google OAuth client. Apply every D1
+migration before deploying code that expects the new schema.
+
+The `dev` and `db:migrate:local` package scripts both set
+`CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH=./wrangler.cloudflare.jsonc` (directly or
+through Wrangler's `--config` option). Keep them aligned: otherwise the Vite
+plugin falls back to the inline placeholder D1 and authentication queries will
+not see migrations applied to the configured local database.
+
+Keep `wrangler.cloudflare.jsonc#compatibility_date` at or below the newest date
+supported by the repository-pinned workerd runtime. Regenerate
+`worker-configuration.d.ts` whenever that date or any binding changes.
+
+The Cloudflare Vite plugin writes a preview-only `dist/server/.dev.vars` so its
+local preview can reproduce bindings. `dist/` is ignored and `.dev.vars` is
+excluded from Worker modules and public assets; deploy through the configured
+Cloudflare/Sites workflow rather than publishing the server directory as raw
+files.
 
 ## Commands
 
 | Goal | Command |
 | --- | --- |
 | Start development | `mise exec -- vp run dev` |
-| Build for Sites | `mise exec -- vp run build` |
 | Run static checks | `mise exec -- vp check` |
 | Run tests | `mise exec -- vp test --run` |
-| Check formatting only | `mise exec -- vp fmt --check` |
 | Apply formatting | `mise exec -- vp fmt` |
 | Lint only | `mise exec -- vp lint` |
-| Build with production Wrangler config | `mise exec -- vp run build:cloudflare` |
-| Regenerate Cloudflare types | `mise exec -- vp run types:cloudflare` |
-| Check generated Cloudflare types | `mise exec -- vp run types:cloudflare:check` |
+| Build for Sites | `mise exec -- vp run build` |
+| Build with Wrangler config | `mise exec -- vp run build:cloudflare` |
 | Generate Drizzle migrations | `mise exec -- vp run db:generate` |
+| Apply local D1 migrations | `mise exec -- vp run db:migrate:local` |
+| Regenerate Worker types | `mise exec -- vp run types:cloudflare` |
 
-Use `vp run` for package scripts. The built-in `vp dev`, `vp build`, and
-`vp test` commands do not execute same-named `package.json` scripts. In
-particular, this repository uses `vp run build` so vinext can perform its
-framework-specific production steps.
-
-## Configuration
-
-`vite.config.ts` is the shared configuration for Vite, Vite+, vinext, the Sites
-packaging plugin, and Cloudflare's Vite plugin. Keep the plugin order:
-
-1. `vinext()`
-2. `sites()`
-3. `cloudflare()`
-
-Keep the application plugins in a direct array. vinext inspects sibling plugin
-names during its config hook to select Cloudflare-compatible environment
-settings. Vitest receives an empty plugin array because its Node test
-environment must not initialize Worker/RSC environments.
-
-The `sites()` plugin must continue to copy `.openai/hosting.json` and `drizzle/`
-into `dist/.openai/`; Sites version packaging depends on those paths.
-
-`worker-configuration.d.ts` is generated from `wrangler.cloudflare.jsonc`.
-Regenerate it whenever Cloudflare bindings or compatibility settings change.
+The `sites()` build plugin must continue packaging `.openai/hosting.json` and
+the complete `drizzle/` directory. Update the production-build test when a new
+required migration is added.
 
 ## Dependency updates
 
-Use Vite+ commands so the pinned pnpm version and workspace policy remain
-consistent:
+Use pnpm through the repository-managed command surface:
 
 ```bash
 mise exec -- vp add <package>
-mise exec -- vp add --save-dev <package>
 mise exec -- vp remove <package>
 mise exec -- vp install
 ```
 
-Review changes to `package.json`, `pnpm-workspace.yaml`, and `pnpm-lock.yaml`
-together.
+Review `package.json`, `pnpm-workspace.yaml`, and `pnpm-lock.yaml` together.

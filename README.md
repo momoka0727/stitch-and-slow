@@ -1,103 +1,92 @@
 # stitch-and-slow
 
-A cross-stitch pattern workspace built with React, vinext, Cloudflare D1, and
-Drizzle. Development uses Vite+ on top of a mise-managed Node.js environment
-and pnpm workspace.
+A cross-stitch pattern workspace built with React, vinext, Cloudflare D1,
+Drizzle, and Google OAuth through Better Auth. Development uses Vite+ on top of
+a mise-managed Node.js environment and a pnpm workspace.
 
 ## Prerequisites
 
 - [mise](https://mise.jdx.dev/)
 - [Vite+](https://viteplus.dev/guide/)
+- A Google Cloud OAuth 2.0 Web application
 
-## Quick Start
+## Quick start
 
 ```bash
 mise install
 vp env off
 mise exec -- vp install
+cp .dev.vars.example .dev.vars
 mise exec -- vp run dev
 ```
 
-`vp env off` is a one-time user setting that keeps mise authoritative for the
-Node.js runtime. Vite+ still selects the repository-pinned pnpm version.
+Fill `.dev.vars` with a random secret of at least 32 bytes and the Google OAuth
+client credentials. `.dev.vars` is ignored by Git. Never commit real client
+secrets.
 
-## Included Shape
-
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` contains the D1 schema
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") === "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```dotenv
+BETTER_AUTH_URL=http://localhost:3000
+BETTER_AUTH_SECRET=<random-secret>
+GOOGLE_CLIENT_ID=<google-client-id>
+GOOGLE_CLIENT_SECRET=<google-client-secret>
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+Create a Google OAuth Web client and register this authorized redirect URI:
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+```text
+http://localhost:3000/api/auth/callback/google
+```
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+For production, set `BETTER_AUTH_URL` to the canonical HTTPS origin, register
+`https://<domain>/api/auth/callback/google`, and inject all four bindings through
+the hosting secret manager or `wrangler secret put`. Do not put secrets in
+`wrangler.cloudflare.jsonc`.
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
+## Authentication and persistence
 
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
+- Better Auth runs Google OIDC at `/api/auth/*` and stores users, linked Google
+  accounts, sessions, OAuth verification state, and rate limits in D1.
+- Email/password registration and the old browser-only email login are disabled.
+- User ownership is always derived from the server-side session `user.id`.
+  Progress APIs never accept an email or user id from the browser.
+- Each project row stores its validated pattern snapshot and stitched-index
+  progress atomically. Signing out and back in restores the same D1-backed data.
+- The legacy `stitch_progress` table remains archived but is not queried because
+  its email ownership was never authenticated.
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
+Apply all files in `drizzle/` to the D1 database before deploying a build that
+uses the new authentication routes. The current schema migration is
+`0002_skinny_sleepwalker.sql`.
 
-## Useful Commands
+Before the first local login, apply migrations with:
 
-- `mise exec -- vp run dev`: start local development through the vinext framework task
+```bash
+mise exec -- vp run db:migrate:local
+```
+
+The `dev` and `db:migrate:local` scripts both use `wrangler.cloudflare.jsonc`,
+so the development server and migration command address the same local D1
+database.
+
+## Useful commands
+
+- `mise exec -- vp run dev`: start local development
+- `mise exec -- vp check`: run format, lint, and type checks
+- `mise exec -- vp test --run`: run tests once
 - `mise exec -- vp run build`: produce the Sites-compatible vinext build
-- `mise exec -- vp check`: format-check, lint, and type-check
-- `mise exec -- vp test --run`: build and run the production-render smoke tests once
 - `mise exec -- vp run build:cloudflare`: build with the production Wrangler config
-- `mise exec -- vp run db:generate`: generate Drizzle migrations after schema changes
+- `mise exec -- vp run db:generate`: generate a Drizzle migration after schema changes
+- `mise exec -- vp run db:migrate:local`: apply pending migrations to the local development D1
+- `mise exec -- vp run types:cloudflare`: regenerate Worker binding types
 
-## Learn More
+## Project shape
 
-- [Vite+ Documentation](https://viteplus.dev/guide/)
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+- `app/api/auth/[...all]/route.ts` exposes the Better Auth handler.
+- `lib/auth.ts` owns server authentication configuration and session lookup.
+- `lib/auth-client.ts` owns the browser authentication client.
+- `db/schema.ts` contains the Better Auth and application D1 schema.
+- `.openai/hosting.json` declares the Sites D1 binding.
+- `drizzle/` contains deployment migrations.
+
+See `.codex/docs/` for the architecture, API, page, schema, and toolchain
+contracts.
