@@ -69,6 +69,9 @@ function createAuth(baseURL: string, secret: string, clientId: string, clientSec
       max: 30,
     },
     advanced: {
+      ipAddress: {
+        ipAddressHeaders: ["cf-connecting-ip"],
+      },
       cookiePrefix: "stitch-and-slow",
       useSecureCookies: origin.startsWith("https://"),
       defaultCookieAttributes: {
