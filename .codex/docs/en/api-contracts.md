@@ -1,5 +1,7 @@
 # API contracts
 
+[简体中文](../zh-cn/api-contracts.md) | English
+
 ## Authentication
 
 Better Auth owns `/api/auth/*`. The browser starts Google sign-in through the

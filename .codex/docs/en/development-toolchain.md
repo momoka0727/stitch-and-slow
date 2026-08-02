@@ -1,5 +1,7 @@
 # Development toolchain
 
+[简体中文](../zh-cn/development-toolchain.md) | English
+
 ## Ownership
 
 - mise owns the Node.js and pnpm versions in `mise.toml`.

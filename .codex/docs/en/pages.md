@@ -1,5 +1,7 @@
 # Pages
 
+[简体中文](../zh-cn/pages.md) | English
+
 ## Route shell
 
 `app/page.tsx` remains a thin App Router entry that renders the single-route

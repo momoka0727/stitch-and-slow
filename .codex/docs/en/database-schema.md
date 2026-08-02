@@ -1,5 +1,7 @@
 # Database schema
 
+[简体中文](../zh-cn/database-schema.md) | English
+
 ## Better Auth tables
 
 - `user` stores the internal user id and Google-supplied profile fields.

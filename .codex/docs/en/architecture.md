@@ -1,5 +1,7 @@
 # Architecture
 
+[简体中文](../zh-cn/architecture.md) | English
+
 ## Dependency and trust flow
 
 ```text
