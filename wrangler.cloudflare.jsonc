@@ -4,20 +4,26 @@
   "main": "./worker/index.ts",
   "compatibility_date": "2026-07-29",
   "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": false
+    }
+  },
   "secrets": {
     "required": [
       "BETTER_AUTH_URL",
       "BETTER_AUTH_SECRET",
       "GOOGLE_CLIENT_ID",
-      "GOOGLE_CLIENT_SECRET",
-    ],
+      "GOOGLE_CLIENT_SECRET"
+    ]
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "stitch-and-slow-db",
       "database_id": "a4399cde-c60d-4279-b3d0-51a3be6f4591",
-      "migrations_dir": "drizzle",
-    },
-  ],
+      "migrations_dir": "drizzle"
+    }
+  ]
 }

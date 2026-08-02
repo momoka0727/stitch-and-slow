@@ -29,6 +29,8 @@ cp .dev.vars.example .dev.vars
 
 `wrangler.cloudflare.jsonc#compatibility_date` 不得晚于仓库锁定的 workerd 运行时所支持的最新日期。该日期或任何绑定发生变化时，应重新生成 `worker-configuration.d.ts`。
 
+`wrangler.cloudflare.jsonc#observability.logs` 会启用 Worker 日志，同时禁用自动调用日志，从而在保留应用输出的同时，避免为每个请求记录一条日志。
+
 Cloudflare Vite 插件会写入仅供预览使用的 `dist/server/.dev.vars`，使其本地预览能够复现绑定。`dist/` 已被忽略，且 `.dev.vars` 会从 Worker 模块和公共资源中排除；应通过 Wrangler 部署，而不要将服务器目录作为原始文件发布。
 
 ## 命令

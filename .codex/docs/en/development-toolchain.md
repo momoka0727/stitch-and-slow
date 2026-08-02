@@ -41,6 +41,10 @@ Keep `wrangler.cloudflare.jsonc#compatibility_date` at or below the newest date
 supported by the repository-pinned workerd runtime. Regenerate
 `worker-configuration.d.ts` whenever that date or any binding changes.
 
+`wrangler.cloudflare.jsonc#observability.logs` enables Worker logs while
+disabling automatic invocation logs, so application output remains available
+without recording a log entry for every request.
+
 The Cloudflare Vite plugin writes a preview-only `dist/server/.dev.vars` so its
 local preview can reproduce bindings. `dist/` is ignored and `.dev.vars` is
 excluded from Worker modules and public assets; deploy through Wrangler rather
