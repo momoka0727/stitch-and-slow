@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "stitch-and-slow",
+  "account_id": "2373b193100e61308c85a42c81596b03",
   "main": "./worker/index.ts",
   "compatibility_date": "2026-07-29",
   "compatibility_flags": ["nodejs_compat"],
@@ -16,8 +17,24 @@
       "BETTER_AUTH_SECRET",
       "GOOGLE_CLIENT_ID",
       "GOOGLE_CLIENT_SECRET",
+      "TURNSTILE_SITE_KEY",
+      "TURNSTILE_SECRET_KEY",
+      "EMAIL_CODE_PEPPER",
+      "SMTP_HOST",
+      "SMTP_PORT",
+      "SMTP_TLS_MODE",
+      "SMTP_USERNAME",
+      "SMTP_PASSWORD",
+      "SMTP_FROM",
     ],
   },
+  "kv_namespaces": [
+    {
+      "binding": "EMAIL_VERIFICATION_CODES",
+      "id": "4f234e2ff2754a3db86d32b719aed057",
+      "preview_id": "44116b24abbd40e081119f71d4562a5a",
+    },
+  ],
   "d1_databases": [
     {
       "binding": "DB",
