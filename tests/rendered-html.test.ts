@@ -68,6 +68,7 @@ describe("production build", () => {
       name: string;
       main: string;
       assets: { directory: string };
+      kv_namespaces: Array<{ binding: string; id: string }>;
       d1_databases: Array<{
         binding: string;
         database_id: string;
@@ -77,6 +78,9 @@ describe("production build", () => {
     expect(config.name).toBe("stitch-and-slow");
     expect(config.main).toBe("index.js");
     expect(config.assets.directory).toBe("../client");
+    expect(config.kv_namespaces).toContainEqual(
+      expect.objectContaining({ binding: "EMAIL_VERIFICATION_CODES" }),
+    );
     expect(config.d1_databases).toContainEqual(
       expect.objectContaining({
         binding: "DB",
