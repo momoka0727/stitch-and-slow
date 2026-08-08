@@ -4,9 +4,27 @@
 
 ## 身份验证
 
-Better Auth 负责 `/api/auth/*`。浏览器通过 Better Auth 客户端启动 Google 登录，
-Google 返回至 `/api/auth/callback/google`，随后服务端设置 HttpOnly 会话 cookie。
-`GET /api/auth/get-session` 是浏览器身份状态的唯一来源；电子邮箱/密码注册已禁用。
+Better Auth 负责 Google OAuth、邮箱密码登录和 `/api/auth/*` 下的会话。浏览器可启动
+Google 登录，或以 `POST /api/auth/sign-in/email` 提交邮箱密码。邮箱登录必须在
+`x-captcha-response` 请求头携带 action 为 `email-login` 的 Turnstile token。
+
+邮箱注册使用以下应用路由：
+
+- `GET /api/auth/email/config` 仅返回公开的 Turnstile site key，且禁止缓存。
+- `POST /api/auth/email/code` 接受严格的 `{ email }` JSON，并要求 action 为
+  `email-signup-send` 的 Turnstile token。成功时通过 SMTP 发送 6 位验证码，并返回不透明的
+  `challengeId` 和 600 秒有效期。邮箱和来源 IP 分别具有由 D1 原子计数的 60 秒冷却。
+- `POST /api/auth/email/register` 接受 `name`、`email`、`password`、`code` 和
+  `challengeId`，并要求新的 action 为 `email-signup` 的 Turnstile token。服务端验证并删除
+  KV challenge 后，通过仅限内部使用的短期签名证明调用 Better Auth 注册端点。每个
+  challenge 最多提交 5 次；成功创建账户后删除 challenge。
+
+三个写入端点都验证同源请求。Turnstile token 单次有效，前端每次请求后必须重新生成。
+验证码错误、过期与无法注册使用通用错误，不返回内部存储细节。直接调用
+`POST /api/auth/sign-up/email` 而没有有效内部证明会返回 `403`。
+
+成功登录或注册后，服务端设置 HttpOnly 会话 cookie。`GET /api/auth/get-session` 是浏览器
+身份状态的唯一来源。
 
 受保护的路由调用 `getAuthenticatedUser(request)`，并从已验证会话的 `user.id`
 推导所有权。它们绝不接受 `email`、`userEmail` 或 `userId` 作为所有权输入。

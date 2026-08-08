@@ -10,11 +10,18 @@
 
 ## 身份验证界面
 
-`components/modals/auth-modal.tsx` 只包含一个 Google 登录操作，不提供注册标签页、
-电子邮件输入框或密码输入框。Better Auth React 客户端负责提供会话加载、用户资料、
-登录和退出登录状态。
+`components/modals/auth-modal.tsx` 提供邮箱登录、两步邮箱注册和 Google 登录。登录表单包含
+邮箱、密码和 action 为 `email-login` 的 Turnstile。注册第一步收集昵称、邮箱和密码，完成
+`email-signup-send` 人机验证后通过 SMTP 获取验证码；第二步输入 6 位验证码，并使用新的
+`email-signup` Turnstile token 完成注册。Turnstile 脚本由
+`components/auth/turnstile-widget.tsx` 显式加载和清理，token 不进入浏览器持久化存储。
 
-受保护的导航会在 OAuth 回调 URL 中记录用户请求的视图。回调成功后，工作区会读取一次
+表单使用正确的 email、current-password、new-password 和 one-time-code 自动填充语义。
+切换模式或请求完成后会重置 Turnstile；错误使用 alert，发送成功状态使用 polite live region。
+发码后界面显示与服务端一致的 60 秒重发倒计时。弹窗约束键盘焦点，方向键可切换认证
+标签，关闭后焦点返回触发按钮。邮箱配置暂时不可用时仍保留 Google 登录。
+
+受保护的导航会在认证回调 URL 中记录用户请求的视图。Google 回调或邮箱认证成功刷新后，工作区会读取一次
 `view` 参数，并继续执行用户请求的操作。页眉会显示 Google 头像或用户资料名称的首字母。
 在检测会话期间，界面会显示禁用的加载状态。
 
@@ -29,5 +36,5 @@
 - `projects-page.tsx` — 需要身份验证、由 D1 支持的项目卡片。
 - `studio-page.tsx` — 针绣画布、进度控制和自动保存状态。
 
-`components/layout/` 负责共享的页眉和页脚。`components/modals/` 负责 Google 身份验证
-和分享对话框。`components/pattern/` 负责可复用的图案渲染。
+`components/layout/` 负责共享的页眉和页脚。`components/modals/` 负责身份验证和分享
+对话框，`components/auth/` 负责认证专用组件。`components/pattern/` 负责可复用的图案渲染。

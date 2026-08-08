@@ -7,6 +7,8 @@
 ```text
 Google OIDC -> Better Auth route -> D1 user/account/session
                                   -> HttpOnly session cookie
+email signup -> Turnstile -> SMTP code -> Workers KV challenge -> signed signup proof
+email login -> Turnstile -> Better Auth credential -> D1 user/account/session
 browser UI -> validated API client -> route auth guard -> user_projects / shared_projects
 ```
 
@@ -18,8 +20,21 @@ browser UI -> validated API client -> route auth guard -> user_projects / shared
 - `lib/api/` contains the validated browser API client.
 - `db/` owns the D1 binding and Drizzle schema.
 
-Google's provider account id is linked to an internal immutable `user.id` by
-Better Auth. Application ownership always uses that internal id. Email, display
+Better Auth links either Google's provider account id or an email/password
+credential account to an immutable internal `user.id`. Signup codes are stored
+only as HMAC digests in `EMAIL_VERIFICATION_CODES` KV with a ten-minute TTL,
+random challenge id, and keys that contain no plaintext email. Code delivery and
+final signup each require a fresh Cloudflare Turnstile token; Better Auth's
+Turnstile plugin protects password sign-in. After a code passes, the signup route
+creates a 30-second internal proof bound to that email, so the default
+`/sign-up/email` endpoint cannot be called directly to bypass verification.
+
+Workers KV is eventually consistent and has no atomic consume operation. The D1
+unique-email constraint ensures concurrent registration requests can create at
+most one user. Any future higher-risk use such as password reset should use a
+Durable Object or D1 atomic consumption as the source of truth.
+
+Application ownership always uses the internal user id. Email, display
 name, and avatar are profile data and must not be used as authorization keys.
 OAuth tokens are encrypted at rest; cookies are HttpOnly, same-site, and secure
 on HTTPS origins.

@@ -4,10 +4,33 @@
 
 ## Authentication
 
-Better Auth owns `/api/auth/*`. The browser starts Google sign-in through the
-Better Auth client, Google returns to `/api/auth/callback/google`, and the server
-sets an HttpOnly session cookie. `GET /api/auth/get-session` is the only source
-of browser identity state; email/password registration is disabled.
+Better Auth owns Google OAuth, email/password sign-in, and sessions under
+`/api/auth/*`. The browser may start Google sign-in or post credentials to
+`POST /api/auth/sign-in/email`. Email sign-in must include a Turnstile token with
+the `email-login` action in the `x-captcha-response` header.
+
+Email signup uses these application routes:
+
+- `GET /api/auth/email/config` returns only the public Turnstile site key and is
+  never cached.
+- `POST /api/auth/email/code` accepts strict `{ email }` JSON and a Turnstile
+  token with the `email-signup-send` action. It sends a six-digit code over SMTP
+  and returns an opaque `challengeId` with a 600-second lifetime. Email and source
+  IP each have a D1-backed atomic 60-second cooldown.
+- `POST /api/auth/email/register` accepts `name`, `email`, `password`, `code`, and
+  `challengeId`, plus a fresh Turnstile token with the `email-signup` action. It
+  validates the KV challenge, then invokes Better Auth signup with a short-lived
+  internal signed proof. Each challenge allows at most five submissions and is
+  deleted after the account is created successfully.
+
+All three write operations enforce same-origin requests. Turnstile tokens are
+single-use and the browser must render a new token after each request. Invalid or
+expired codes and unavailable accounts produce generic errors without exposing
+storage details. A direct `POST /api/auth/sign-up/email` without a valid internal
+proof returns `403`.
+
+Successful sign-in or signup sets an HttpOnly session cookie.
+`GET /api/auth/get-session` remains the only source of browser identity state.
 
 Protected routes call `getAuthenticatedUser(request)` and derive ownership from
 the verified session `user.id`. They never accept `email`, `userEmail`, or

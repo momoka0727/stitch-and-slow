@@ -4,13 +4,20 @@
 
 ## Better Auth 数据表
 
-- `user` 存储内部用户 ID 和 Google 提供的个人资料字段。
-- `account` 将 `(provider_id, account_id)` 关联至一个内部用户。OAuth 令牌列由 Better Auth 加密。
+- `user` 存储内部用户 ID、已验证邮箱和个人资料字段。邮箱注册用户可以没有头像。
+- `account` 将 `(provider_id, account_id)` 关联至一个内部用户。Google OAuth 令牌列由
+  Better Auth 加密；邮箱密码 credential 账户使用现有的 `password` 列保存安全散列。
 - `session` 存储服务器会话，并使其在 30 天后过期。
 - `verification` 存储短期 OAuth 状态和验证记录。
 - `rate_limit` 为身份验证端点提供由 D1 支持的限流。
 
 删除用户时，会级联删除账户、会话以及该用户拥有的项目。根据身份验证适配器的要求，提供商与账户 ID 的组合、会话令牌以及用户电子邮件均具有唯一索引。
+
+注册验证码不写入 D1 `verification` 表。`EMAIL_VERIFICATION_CODES` Workers KV 以
+`email-code:challenge:<email-hash>:<challenge-id>` 为键，值只包含验证码 HMAC 摘要、创建时间
+和用途，并由 600 秒 TTL 自动清理。发码冷却与每个 challenge 最多 5 次提交使用现有 D1
+`rate_limit` 表中的命名空间键，以获得跨地区的原子计数。KV binding 不改变 D1 schema，
+因此本次改动不需要新的 Drizzle 迁移。
 
 ## 应用数据表
 

@@ -4,9 +4,11 @@
 
 ## Better Auth tables
 
-- `user` stores the internal user id and Google-supplied profile fields.
-- `account` links `(provider_id, account_id)` to one internal user. OAuth token
-  columns are encrypted by Better Auth.
+- `user` stores the internal user id, verified email, and profile fields. Email
+  signup users may not have an avatar.
+- `account` links `(provider_id, account_id)` to one internal user. Better Auth
+  encrypts Google OAuth token columns; email/password credential accounts use the
+  existing `password` column for a secure hash.
 - `session` stores server sessions and expires them after 30 days.
 - `verification` stores short-lived OAuth state and verification records.
 - `rate_limit` provides D1-backed throttling for authentication endpoints.
@@ -14,6 +16,14 @@
 User deletion cascades to accounts, sessions, and owned projects. Provider and
 account id, session token, and user email are uniquely indexed as required by
 the auth adapter.
+
+Signup codes are not stored in the D1 `verification` table. The
+`EMAIL_VERIFICATION_CODES` Workers KV binding uses
+`email-code:challenge:<email-hash>:<challenge-id>` keys. Values contain only an
+HMAC code digest, creation time, and purpose, with a 600-second TTL. Cooldown keys
+and the five-attempt limit per challenge use namespaced rows in the existing D1
+`rate_limit` table for cross-region atomic counters. The KV binding does not
+change the D1 schema, so this change requires no new Drizzle migration.
 
 ## Application tables
 
