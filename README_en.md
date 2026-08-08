@@ -2,8 +2,8 @@
 
 [简体中文](README.md) | English
 
-A cross-stitch pattern workspace built with React, vinext, Cloudflare D1,
-Drizzle, and Google OAuth through Better Auth. Development uses Vite+ on top of
+A cross-stitch pattern workspace built with React, vinext, Cloudflare D1 and
+Workers KV, Drizzle, and Better Auth with Google OAuth plus email/password auth. Development uses Vite+ on top of
 a mise-managed Node.js environment and a pnpm workspace.
 
 ## Prerequisites
@@ -11,6 +11,8 @@ a mise-managed Node.js environment and a pnpm workspace.
 - [mise](https://mise.jdx.dev/)
 - [Vite+](https://viteplus.dev/guide/)
 - A Google Cloud OAuth 2.0 Web application
+- A Cloudflare Turnstile widget and Workers KV namespace
+- An SMTP account supporting TLS on 465 or STARTTLS on 587
 
 ## Quick start
 
@@ -22,15 +24,24 @@ cp .dev.vars.example .dev.vars
 mise exec -- pnpm run dev
 ```
 
-Fill `.dev.vars` with a random secret of at least 32 bytes and the Google OAuth
-client credentials. `.dev.vars` is ignored by Git. Never commit real client
-secrets.
+Fill `.dev.vars` with Better Auth, Google OAuth, Turnstile, SMTP, and an
+independent verification-code pepper. See `.dev.vars.example` for every field.
+`.dev.vars` is ignored by Git. Never commit real secrets.
 
 ```dotenv
 BETTER_AUTH_URL=http://localhost:3000
 BETTER_AUTH_SECRET=<random-secret>
 GOOGLE_CLIENT_ID=<google-client-id>
 GOOGLE_CLIENT_SECRET=<google-client-secret>
+TURNSTILE_SITE_KEY=<turnstile-site-key>
+TURNSTILE_SECRET_KEY=<turnstile-secret-key>
+EMAIL_CODE_PEPPER=<independent-random-secret>
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_TLS_MODE=starttls
+SMTP_USERNAME=<smtp-user>
+SMTP_PASSWORD=<smtp-password>
+SMTP_FROM=no-reply@example.com
 ```
 
 Create a Google OAuth Web client and register this authorized redirect URI:
@@ -40,15 +51,23 @@ http://localhost:3000/api/auth/callback/google
 ```
 
 For production, set `BETTER_AUTH_URL` to the canonical Cloudflare HTTPS origin,
-register `https://<domain>/api/auth/callback/google`, and inject all four values
-with `wrangler secret put --config wrangler.cloudflare.jsonc`. Do not put secret
+register `https://<domain>/api/auth/callback/google`. The repository config is
+already bound to production and preview KV namespaces in the project account;
+create new namespaces and replace the IDs when deploying to another Cloudflare
+account. Inject every required value with
+`wrangler secret put --config wrangler.cloudflare.jsonc`. Do not put secret
 values in `wrangler.cloudflare.jsonc`.
 
 ## Authentication and persistence
 
 - Better Auth runs Google OIDC at `/api/auth/*` and stores users, linked Google
   accounts, sessions, OAuth verification state, and rate limits in D1.
-- Email/password registration and the old browser-only email login are disabled.
+- Email/password sign-in is protected by Cloudflare Turnstile. Email signup uses
+  Turnstile and custom SMTP to deliver a six-digit code, then requires a second
+  Turnstile token to finish registration.
+- Signup challenge HMAC digests live in Workers KV and expire after ten minutes.
+  KV keys contain no plaintext email, and the default Better Auth email-signup
+  endpoint cannot be called directly to bypass the code.
 - User ownership is always derived from the server-side session `user.id`.
   Progress APIs never accept an email or user id from the browser.
 - Each project row stores its validated pattern snapshot and stitched-index
@@ -103,7 +122,8 @@ migration.
 - `lib/auth.ts` owns server authentication configuration and session lookup.
 - `lib/auth-client.ts` owns the browser authentication client.
 - `db/schema.ts` contains the Better Auth and application D1 schema.
-- `wrangler.cloudflare.jsonc` declares the production Worker and D1 binding.
+- `wrangler.cloudflare.jsonc` declares the production Worker, D1 and KV bindings,
+  and runtime configuration contract.
 - `drizzle/` contains deployment migrations.
 
 See [`.codex/docs/en/`](.codex/docs/en/) for the architecture, API, page,

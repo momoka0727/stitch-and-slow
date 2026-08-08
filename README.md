@@ -2,8 +2,8 @@
 
 简体中文 | [English](README_en.md)
 
-一个使用 React、vinext、Cloudflare D1、Drizzle 以及通过 Better Auth 集成
-Google OAuth 构建的十字绣图案工作区。项目基于由 mise 管理的 Node.js 环境，
+一个使用 React、vinext、Cloudflare D1 / Workers KV、Drizzle 以及 Better Auth 构建的
+十字绣图案工作区，支持 Google OAuth 和邮箱密码认证。项目基于由 mise 管理的 Node.js 环境，
 使用 Vite+ 进行开发，并采用 pnpm workspace。
 
 ## 前置条件
@@ -11,6 +11,8 @@ Google OAuth 构建的十字绣图案工作区。项目基于由 mise 管理的 
 - [mise](https://mise.jdx.dev/)
 - [Vite+](https://viteplus.dev/guide/)
 - 一个 Google Cloud OAuth 2.0 Web 应用
+- 一个 Cloudflare Turnstile widget 和一个 Workers KV namespace
+- 支持 465 TLS 或 587 STARTTLS 的 SMTP 邮箱
 
 ## 快速开始
 
@@ -22,7 +24,8 @@ cp .dev.vars.example .dev.vars
 mise exec -- pnpm run dev
 ```
 
-在 `.dev.vars` 中填写一个至少 32 字节的随机密钥和 Google OAuth 客户端凭据。
+在 `.dev.vars` 中填写 Better Auth、Google OAuth、Turnstile 和 SMTP 配置，以及独立随机的
+验证码 pepper。完整字段参见 `.dev.vars.example`。
 `.dev.vars` 已被 Git 忽略。切勿提交真实的客户端密钥。
 
 ```dotenv
@@ -30,6 +33,15 @@ BETTER_AUTH_URL=http://localhost:3000
 BETTER_AUTH_SECRET=<random-secret>
 GOOGLE_CLIENT_ID=<google-client-id>
 GOOGLE_CLIENT_SECRET=<google-client-secret>
+TURNSTILE_SITE_KEY=<turnstile-site-key>
+TURNSTILE_SECRET_KEY=<turnstile-secret-key>
+EMAIL_CODE_PEPPER=<independent-random-secret>
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_TLS_MODE=starttls
+SMTP_USERNAME=<smtp-user>
+SMTP_PASSWORD=<smtp-password>
+SMTP_FROM=no-reply@example.com
 ```
 
 创建一个 Google OAuth Web 客户端，并注册以下已获授权的重定向 URI：
@@ -39,15 +51,19 @@ http://localhost:3000/api/auth/callback/google
 ```
 
 在生产环境中，将 `BETTER_AUTH_URL` 设置为规范的 Cloudflare HTTPS 源地址，
-注册 `https://<domain>/api/auth/callback/google`，并使用
-`wrangler secret put --config wrangler.cloudflare.jsonc` 注入全部四个值。
+注册 `https://<domain>/api/auth/callback/google`。仓库配置已绑定项目账号中的生产和预览
+KV namespace；若部署到其他 Cloudflare Account，需要重新创建 namespace 并替换 ID。使用
+`wrangler secret put --config wrangler.cloudflare.jsonc` 注入所有必需值。
 不要将密钥值写入 `wrangler.cloudflare.jsonc`。
 
 ## 身份认证与持久化
 
 - Better Auth 在 `/api/auth/*` 运行 Google OIDC，并将用户、关联的 Google
   账户、会话、OAuth 验证状态和速率限制数据存储在 D1 中。
-- 电子邮件/密码注册和旧版仅限浏览器的电子邮件登录均已禁用。
+- 邮箱密码登录受 Cloudflare Turnstile 保护。邮箱注册先通过 Turnstile 和自定义 SMTP 获取
+  6 位验证码，再使用第二个 Turnstile token 完成注册。
+- 注册 challenge 的 HMAC 摘要存放在 Workers KV 中，10 分钟后自动过期；KV 键不包含明文
+  邮箱，默认 Better Auth 邮箱注册端点无法绕过验证码直接调用。
 - 用户所有权始终由服务端会话中的 `user.id` 确定。进度 API 从不接受浏览器
   提供的电子邮件地址或用户 ID。
 - 每条项目记录会以原子方式存储经过验证的图案快照和已完成针脚的索引进度。
@@ -99,7 +115,7 @@ schema 的代码。
 - `lib/auth.ts` 负责服务端身份认证配置和会话查询。
 - `lib/auth-client.ts` 负责浏览器端身份认证客户端。
 - `db/schema.ts` 包含 Better Auth 和应用程序的 D1 schema。
-- `wrangler.cloudflare.jsonc` 声明生产环境 Worker 和 D1 绑定。
+- `wrangler.cloudflare.jsonc` 声明生产环境 Worker、D1、KV 和运行时配置契约。
 - `drizzle/` 包含部署迁移。
 
 有关架构、API、页面、schema 和工具链约定，请参阅

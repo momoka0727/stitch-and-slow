@@ -8,7 +8,7 @@ vi.mock("../db", () => ({
 
 vi.mock("../lib/auth", () => ({
   getAuthenticatedUser: vi.fn(async () => null),
-  unauthorized: () => Response.json({ error: "请先使用 Google 登录" }, { status: 401 }),
+  unauthorized: () => Response.json({ error: "请先登录" }, { status: 401 }),
 }));
 
 import { GET as getProgress, POST as saveProgress } from "../app/api/progress/route";
@@ -19,7 +19,7 @@ describe("authenticated API boundaries", () => {
     const response = await getProgress(new Request("https://app.example/api/progress?all=1"));
 
     expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toEqual({ error: "请先使用 Google 登录" });
+    await expect(response.json()).resolves.toEqual({ error: "请先登录" });
   });
 
   test("rejects anonymous progress and share writes", async () => {
