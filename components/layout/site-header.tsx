@@ -61,7 +61,7 @@ export function SiteHeader({
         </div>
       ) : (
         <button className="header-login" onClick={onLogin} disabled={authPending}>
-          {authPending ? "正在确认…" : "使用 Google 登录"}
+          {authPending ? "正在确认…" : "登录 / 注册"}
         </button>
       )}
     </header>
